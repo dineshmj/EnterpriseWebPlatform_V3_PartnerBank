@@ -1,0 +1,10 @@
+@page
+@model PartnerBank.Products.Pages.StartModel
+@{
+    ViewData["Title"] = "Link not valid";
+}
+<section class="card">
+    <h1>This link cannot be used</h1>
+    <p class="error" role="alert">@Model.Problem</p>
+    <p>Go back to your bank's website and open the Partner Bank window again.</p>
+</section>

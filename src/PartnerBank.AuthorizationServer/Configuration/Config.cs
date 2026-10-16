@@ -30,8 +30,35 @@ public static class Config
         new("partner-api", "Partner Bank API") { Scopes = { ProductsRead, ApplicationsWrite } }
     ];
 
-    public static IEnumerable<Client> Clients(EwpClientOptions ewp)
+    public static IEnumerable<Client> Clients(EwpClientOptions ewp, ProductsWindowClientOptions productsWindow)
     {
+        if (string.IsNullOrWhiteSpace(productsWindow.ClientId) || string.IsNullOrWhiteSpace(productsWindow.Secret))
+            throw new InvalidOperationException("PartnerBank:ProductsWindowClient:ClientId and Secret are required.");
+
+        yield return new Client
+        {
+            ClientId = productsWindow.ClientId,
+            ClientName = "Partner Bank products",
+
+            // ┌─ SEC ────────────────────────────────────────────────────────────────────────────────
+            // │ The Partner's OWN web app, on the Partner's own machine: a confidential client with
+            // │ a secret (stored hashed here), code + PKCE, and - like every client - PAR. The
+            // │ customer is already signed in at this server (they came through EWP's window), so
+            // │ the window opens without asking again (single sign-on).
+            // └──────────────────────────────────────────────────────────────────────────────────────
+            ClientSecrets = { new Secret(productsWindow.Secret.Sha256()) },
+            AllowedGrantTypes = GrantTypes.Code,
+            RequirePushedAuthorization = true,
+            RequirePkce = true,
+            AllowPlainTextPkce = false,
+            RedirectUris = productsWindow.RedirectUris,
+            PostLogoutRedirectUris = productsWindow.PostLogoutRedirectUris,
+            AllowedScopes = { IdentityServerConstants.StandardScopes.OpenId, IdentityServerConstants.StandardScopes.Profile },
+            RequireConsent = false,
+            AllowOfflineAccess = false,
+            AuthorizationCodeLifetime = 60
+        };
+
         if (string.IsNullOrWhiteSpace(ewp.ClientId) || string.IsNullOrWhiteSpace(ewp.CertificateSubject))
             throw new InvalidOperationException("PartnerBank:EwpClient:ClientId and CertificateSubject are required.");
 

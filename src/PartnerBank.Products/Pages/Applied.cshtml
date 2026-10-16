@@ -1,0 +1,17 @@
+@page
+@model PartnerBank.Products.Pages.AppliedModel
+@{
+    ViewData["Title"] = "Application received";
+}
+<section class="card">
+    @if (Model.Application is null)
+    {
+        <h1>Application not found</h1>
+    }
+    else
+    {
+        <h1>Thank you - we have your application</h1>
+        <p>Application <strong>@Model.Application.Number</strong> for <strong>@Model.ProductName</strong> is with us. Your bank will show you how it goes.</p>
+        <p class="muted">You can close this window now.</p>
+    }
+</section>

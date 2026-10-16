@@ -1,11 +1,5 @@
-using System.Security.Authentication;
-using System.Security.Cryptography.X509Certificates;
-
-using Microsoft.AspNetCore.Authentication.Certificate;
-using Microsoft.AspNetCore.Server.Kestrel.Https;
-
 using PartnerBank.AuthorizationServer.Configuration;
-using PartnerBank.AuthorizationServer.Security;
+using PartnerBank.Security;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -20,37 +14,15 @@ var serverCertificate = settings.Tls.LoadServerCertificate();
 var trustRoot = settings.Tls.LoadTrustRoot();
 
 // ┌─ SEC ────────────────────────────────────────────────────────────────────────────────
-// │ TWO HTTPS ports (Kestrel:Endpoints in appsettings), TLS 1.2 / 1.3 only:
-// │  - Public (47401): people - sign-in, authorize, discovery. NEVER asks for a client
+// │ TWO HTTPS ports (Kestrel:Endpoints in appsettings):
+// │  - Public (47401): people and the Partner's own products window - sign-in, authorize,
+// │    discovery, and PAR / token for clients with a secret. NEVER asks for a client
 // │    certificate, so no browser shows a certificate picker to a customer.
-// │  - Mtls (47411): EWP's server only - PAR and token. REQUIRES a client certificate in the
-// │    TLS handshake: without one there is no connection at all.
-// │ Kestrel accepts any certificate at the TLS layer only so that the authentication handler
-// │ below decides (and the client gets an OAuth error) - it is never trusted there.
+// │  - Mtls (47411): EWP's server - PAR and token. REQUIRES a client certificate in the TLS
+// │    handshake: without one there is no connection at all.
 // └──────────────────────────────────────────────────────────────────────────────────────
-builder.WebHost.ConfigureKestrel(kestrel => kestrel.ConfigureHttpsDefaults(https =>
-{
-    https.ServerCertificate = serverCertificate;
-    https.SslProtocols = SslProtocols.Tls12 | SslProtocols.Tls13;
-    https.AllowAnyClientCertificate();
-}));
-
-// ┌─ SEC ────────────────────────────────────────────────────────────────────────────────
-// │ The client-certificate check: it must chain to the PoC's trust root ONLY (not to any root
-// │ Windows trusts), be within its validity period, and carry the client-authentication
-// │ purpose. Revocation is not checked: the PoC's root publishes no revocation list (a
-// │ production trust body does - see README).
-// └──────────────────────────────────────────────────────────────────────────────────────
-builder.Services.AddAuthentication()
-    .AddCertificate(MutualTls.Scheme, options =>
-    {
-        options.AllowedCertificateTypes = CertificateTypes.Chained;
-        options.ChainTrustValidationMode = X509ChainTrustMode.CustomRootTrust;
-        options.CustomTrustStore.Add(trustRoot);
-        options.RevocationMode = X509RevocationMode.NoCheck;
-        options.ValidateCertificateUse = true;
-        options.ValidateValidityPeriod = true;
-    });
+builder.WebHost.ConfigureKestrel(kestrel => kestrel.UsePartnerTls(serverCertificate));
+builder.Services.AddAuthentication().AddPartnerClientCertificates(trustRoot);
 
 builder.Services
     .AddIdentityServer(options =>
@@ -68,7 +40,7 @@ builder.Services
         // └──────────────────────────────────────────────────────────────────────────────────────
         options.MutualTls.Enabled = true;
         options.MutualTls.DomainName = mtlsBaseUri.Authority;
-        options.MutualTls.ClientCertificateAuthenticationScheme = MutualTls.Scheme;
+        options.MutualTls.ClientCertificateAuthenticationScheme = ClientCertificates.Scheme;
         options.MutualTls.AlwaysEmitConfirmationClaim = true;
 
         // ┌─ SEC ────────────────────────────────────────────────────────────────────────────────
@@ -88,7 +60,7 @@ builder.Services
     .AddInMemoryIdentityResources(Config.IdentityResources)
     .AddInMemoryApiScopes(Config.ApiScopes)
     .AddInMemoryApiResources(Config.ApiResources)
-    .AddInMemoryClients(Config.Clients(settings.EwpClient).ToList())
+    .AddInMemoryClients(Config.Clients(settings.EwpClient, settings.ProductsWindowClient).ToList())
     .AddTestUsers(Config.DemoCustomers(settings.DemoCustomers))
     .AddMutualTlsSecretValidators();
 
@@ -100,7 +72,15 @@ if (!app.Environment.IsDevelopment())
     app.UseHsts();
 
 app.UseSecurityHeaders();
-app.UseMtlsPortGuard(mtlsBaseUri.Port);
+
+// ┌─ SEC ────────────────────────────────────────────────────────────────────────────────
+// │ The mTLS port serves only PAR, token, revocation and introspection; pages for people
+// │ answer 404 there. Not exclusive: the public port keeps PAR and token for the Partner's
+// │ own products window (a client with a secret).
+// └──────────────────────────────────────────────────────────────────────────────────────
+string[] serverToServer = ["/connect/par", "/connect/token", "/connect/revocation", "/connect/introspect"];
+app.UsePortGuard(mtlsBaseUri.Port, path => serverToServer.Any(p => path.Equals(p, StringComparison.OrdinalIgnoreCase)), exclusive: false);
+
 app.UseStaticFiles();
 app.UseRouting();
 app.UseIdentityServer();

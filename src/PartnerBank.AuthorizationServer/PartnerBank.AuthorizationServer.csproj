@@ -10,7 +10,10 @@
 
   <ItemGroup>
     <PackageReference Include="Duende.IdentityServer" Version="8.0.10" />
-    <PackageReference Include="Microsoft.AspNetCore.Authentication.Certificate" Version="10.0.13" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\PartnerBank.Security\PartnerBank.Security.csproj" />
   </ItemGroup>
 
 </Project>

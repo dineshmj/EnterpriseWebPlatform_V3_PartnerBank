@@ -1,4 +1,6 @@
-namespace PartnerBank.AuthorizationServer.Security;
+using Microsoft.AspNetCore.Builder;
+
+namespace PartnerBank.Security;
 
 public static class SecurityHeaders
 {
