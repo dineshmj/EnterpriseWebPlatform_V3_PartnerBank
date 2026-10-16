@@ -22,6 +22,9 @@ public sealed class PartnerBankOptions
     public ProductsWindowClientOptions ProductsWindowClient { get; init; } = new();
 
     public List<DemoCustomerOptions> DemoCustomers { get; init; } = [];
+
+    /// <summary>Product names for the consent page (the catalogue itself belongs to the Partner Bank API).</summary>
+    public Dictionary<string, string> ProductNames { get; init; } = [];
 }
 
 /// <summary>EWP (Four Walls Inc.), the one organisation allowed to show our products.</summary>

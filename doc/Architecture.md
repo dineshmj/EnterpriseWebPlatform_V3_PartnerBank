@@ -49,12 +49,13 @@ Both trust **one root** (`EWP Local Trust Root (DEVELOPMENT ONLY)`), created by 
 | D7 | **Payment advice (remittance advice)**: after EWP's payment completes, EWP's server tells the Partner API the payment's network reference over mutual TLS | a real bank would see the money on its own statement; the advice is the common, real pattern that keeps the two organisations' systems separate |
 | D8 | **SQLite created at start-up, no migrations** | PoC: delete the file to start again - the same rule as EWP's full database scripts |
 | D9 | **Catalogue**: Term Deposit and Bonus Saver (simple applications) and Digital Gold (the full flow); the home loan was removed | lending is a bounded context of its own and deserves proper treatment later |
+| D10 | **Consent for every request, never remembered** (2026-10-16) | open banking's rule: the customer approves at the organisation that holds the relationship, each specific request on its own - approving one purchase is not approving the next |
 
 ## 4. The journey
 
 **Today** (verified end to end by `tools\JourneyCheck`):
 
-1. EWP's server pushes a signed authorization request (JAR, with `authorization_details`) over mutual TLS; the customer signs in at the Partner Bank; EWP exchanges the code for the customer's token, bound to EWP's certificate and carrying the approved `authorization_details`.
+1. EWP's server pushes a signed authorization request (JAR, with `authorization_details`) over mutual TLS; the customer signs in at the Partner Bank and **consents** on a page that shows exactly what EWP asks, who offered it and what EWP shared; EWP exchanges the code for the customer's token, bound to EWP's certificate and carrying the approved `authorization_details`. A declined request returns `access_denied` and no code.
 2. EWP asks the external API for a one-time window link for that customer.
 3. The customer opens the window (single sign-on), chooses a product and applies; the window does this through the internal API.
 4. EWP reads the application's status through the external API.

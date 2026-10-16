@@ -1,0 +1,41 @@
+@page "/Consent"
+@model PartnerBank.AuthorizationServer.Pages.Consent.IndexModel
+@{
+    ViewData["Title"] = "Your approval";
+}
+<section class="card">
+    <p class="lead">@Model.ClientName asks for your approval</p>
+    <h1>@Model.Asked</h1>
+
+    @if (Model.Facts.Count > 0)
+    {
+        <dl class="facts">
+            @foreach (var (label, value) in Model.Facts)
+            {
+                <dt>@label</dt>
+                <dd>@value</dd>
+            }
+        </dl>
+    }
+
+    <h2>Offered by</h2>
+    <p>@Model.OfferedBy</p>
+
+    <h2>Details @Model.ClientName shared with us</h2>
+    <dl class="facts">
+        @foreach (var (label, value) in Model.SharedDetails)
+        {
+            <dt>@label</dt>
+            <dd>@value</dd>
+        }
+    </dl>
+
+    <form method="post">
+        <input type="hidden" asp-for="ReturnUrl" />
+        <div class="decisions">
+            <button type="submit" name="decision" value="approve">Approve</button>
+            <button type="submit" name="decision" value="decline" class="secondary">Decline</button>
+        </div>
+    </form>
+    <p class="muted">You decide each request on its own. Nothing is approved until you press Approve.</p>
+</section>

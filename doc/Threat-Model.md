@@ -40,6 +40,7 @@ Scope: the Partner Bank's three deployables and their two boundaries - EWP's ser
 | T13 | EWP's request is changed on the way, or EWP later denies what it asked for (e.g. the amount) | every request is a signed request object (JAR); the signature, issuer, audience, lifetime and type are checked; the Partner Bank holds signed evidence | 12a |
 | T14 | A request authorises more, or something else, than intended | exactly one `authorization_details` of a known type, inside the signed request, strictly validated; the approved detail travels into the token through the stored code | 12b, 12c |
 | T15 | A stolen mutual-TLS key is used to sign requests (or the reverse) | two separate keys: the TLS key authenticates connections, the ES256 key signs requests; neither can do the other's job | 12a |
+| T16 | A customer approves something other than they think (vague or hidden terms), or one approval is reused for later requests | the consent page shows the SIGNED detail in plain words, who offered it and what was shared; consent is per request and never remembered; only an explicit Approve grants anything | 12d |
 
 ## 4. Residual risks (accepted for the PoC)
 

@@ -62,6 +62,7 @@ builder.Services
         options.Discovery.CustomEntries["authorization_details_types_supported"] = AuthorizationDetails.SupportedTypes.ToArray();
 
         options.UserInteraction.LoginUrl = "/Account/Login";
+        options.UserInteraction.ConsentUrl = "/Consent";
         options.UserInteraction.ErrorUrl = "/Error";
 
         options.Events.RaiseErrorEvents = true;

@@ -131,8 +131,13 @@ public static class Config
                 ApplicationsWrite
             },
 
-            // EWP's customers came through a trusted organisation: no separate consent screen in the PoC.
-            RequireConsent = false,
+            // ┌─ SEC ────────────────────────────────────────────────────────────────────────────────
+            // │ The customer approves EVERY request from EWP on the consent page, seeing exactly
+            // │ what is asked (the signed authorization_details) - one decision per request,
+            // │ never remembered: approving one purchase is not approving the next.
+            // └──────────────────────────────────────────────────────────────────────────────────────
+            RequireConsent = true,
+            AllowRememberConsent = false,
             AllowOfflineAccess = false,
 
             // Short-lived: a code for one minute, a token for five.

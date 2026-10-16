@@ -4,8 +4,9 @@
 //   dotnet run tools/JourneyCheck/JourneyCheck.cs                  (the Partner Bank on this machine)
 //   dotnet run tools/JourneyCheck/JourneyCheck.cs -- 192.168.1.12  (the Partner Bank on the home PC)
 //
-// 1. EWP pushes the authorization request (mutual TLS), the customer signs in at the Partner Bank
-//    (demo customer alex.partner), EWP exchanges the code for a token bound to its certificate.
+// 1. EWP pushes a signed authorization request (mutual TLS), the customer signs in at the Partner
+//    Bank (demo customer alex.partner) and approves exactly what EWP asks; EWP exchanges the code for
+//    a token bound to its certificate. A declined request returns no code.
 // 2. EWP asks the Partner API for a one-time window link for that customer.
 // 3. The customer opens the window (single sign-on), chooses a product and applies.
 // 4. EWP reads the application's status through the API.
@@ -134,28 +135,33 @@ var authorizationDetails = new JsonArray(new JsonObject
     ["customer"] = new JsonObject { ["ewpCustomerNumber"] = "CUST-100009", ["name"] = "Camilla Parker", ["dateOfBirth"] = "1988-07-14", ["kycVerified"] = true },
     ["actor"] = new JsonObject { ["lanId"] = "somit", ["branch"] = "SYD001" }
 });
-var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
-var requestObject = new JsonObject
+async Task<(HttpResponseMessage Response, string? RequestUri, string Body)> PushSignedAsync()
 {
-    ["iss"] = ClientId, ["aud"] = Authority, ["client_id"] = ClientId, ["jti"] = Guid.NewGuid().ToString(),
-    ["iat"] = now, ["nbf"] = now, ["exp"] = now + 300,
-    ["response_type"] = "code", ["redirect_uri"] = RedirectUri,
-    ["scope"] = "openid profile partner.products.read partner.applications.write",
-    ["state"] = Base64Url(RandomNumberGenerator.GetBytes(16)),
-    ["code_challenge"] = Base64Url(SHA256.HashData(Encoding.ASCII.GetBytes(verifier))), ["code_challenge_method"] = "S256",
-    ["authorization_details"] = authorizationDetails.DeepClone()
-};
-var jwtHeader = Base64Url(Encoding.UTF8.GetBytes(new JsonObject { ["alg"] = "ES256", ["typ"] = "oauth-authz-req+jwt", ["kid"] = signingCertificate.Thumbprint }.ToJsonString()));
-var jwtBody = Base64Url(Encoding.UTF8.GetBytes(requestObject.ToJsonString()));
-var jwtSignature = Base64Url(signingCertificate.GetECDsaPrivateKey()!.SignData(Encoding.ASCII.GetBytes($"{jwtHeader}.{jwtBody}"), HashAlgorithmName.SHA256));
+    var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+    var requestObject = new JsonObject
+    {
+        ["iss"] = ClientId, ["aud"] = Authority, ["client_id"] = ClientId, ["jti"] = Guid.NewGuid().ToString(),
+        ["iat"] = now, ["nbf"] = now, ["exp"] = now + 300,
+        ["response_type"] = "code", ["redirect_uri"] = RedirectUri,
+        ["scope"] = "openid profile partner.products.read partner.applications.write",
+        ["state"] = Base64Url(RandomNumberGenerator.GetBytes(16)),
+        ["code_challenge"] = Base64Url(SHA256.HashData(Encoding.ASCII.GetBytes(verifier))), ["code_challenge_method"] = "S256",
+        ["authorization_details"] = authorizationDetails.DeepClone()
+    };
+    var jwtHeader = Base64Url(Encoding.UTF8.GetBytes(new JsonObject { ["alg"] = "ES256", ["typ"] = "oauth-authz-req+jwt", ["kid"] = signingCertificate.Thumbprint }.ToJsonString()));
+    var jwtBody = Base64Url(Encoding.UTF8.GetBytes(requestObject.ToJsonString()));
+    var jwtSignature = Base64Url(signingCertificate.GetECDsaPrivateKey()!.SignData(Encoding.ASCII.GetBytes($"{jwtHeader}.{jwtBody}"), HashAlgorithmName.SHA256));
 
-var par = await ewp.PostAsync(parEndpoint, new FormUrlEncodedContent(new Dictionary<string, string>
-{
-    ["client_id"] = ClientId,
-    ["request"] = $"{jwtHeader}.{jwtBody}.{jwtSignature}"
-}));
-var parBody = await par.Content.ReadAsStringAsync();
-var requestUri = Text(parBody, "request_uri");
+    var par = await ewp.PostAsync(parEndpoint, new FormUrlEncodedContent(new Dictionary<string, string>
+    {
+        ["client_id"] = ClientId,
+        ["request"] = $"{jwtHeader}.{jwtBody}.{jwtSignature}"
+    }));
+    var parBody = await par.Content.ReadAsStringAsync();
+    return (par, Text(parBody, "request_uri"), parBody);
+}
+
+var (par, requestUri, parBody) = await PushSignedAsync();
 Check("EWP pushes a SIGNED request (product_application) over mutual TLS", par.StatusCode == HttpStatusCode.Created && requestUri is not null, requestUri is null ? parBody : "");
 
 var authorizeUrl = $"{Authority}/connect/authorize?client_id={ClientId}&request_uri={Uri.EscapeDataString(requestUri!)}";
@@ -170,9 +176,28 @@ var signIn = await browser.PostAsync(loginUrl, new FormUrlEncodedContent(new Dic
     ["Input.ReturnUrl"] = Hidden(loginHtml, "Input.ReturnUrl"),
     ["__RequestVerificationToken"] = Hidden(loginHtml, "__RequestVerificationToken")
 }));
-var (_, callbackUrl) = await Navigate(signIn, loginUrl);
+var (consentPage, consentUrl) = await Navigate(signIn, loginUrl);
+var consentHtml = WebUtility.HtmlDecode(await consentPage.Content.ReadAsStringAsync());
+Check("Consent: the customer sees exactly what EWP asks, who offered it, and what was shared",
+    consentUrl.Contains("/Consent") && consentHtml.Contains("Apply for Partner Term Deposit, 12 months") &&
+    consentHtml.Contains("staff member somit") && consentHtml.Contains("CUST-100009") && consentHtml.Contains("Camilla Parker"),
+    consentUrl.Split('?')[0]);
+
+// The customer's decision on the consent page (the form's anti-forgery token included).
+async Task<string> DecideAsync(string html, string url, string decision)
+{
+    var answer = await browser.PostAsync(url, new FormUrlEncodedContent(new Dictionary<string, string>
+    {
+        ["ReturnUrl"] = Hidden(html, "ReturnUrl"),
+        ["__RequestVerificationToken"] = Hidden(html, "__RequestVerificationToken"),
+        ["decision"] = decision
+    }));
+    return (await Navigate(answer, url)).Url;
+}
+
+var callbackUrl = await DecideAsync(consentHtml, consentUrl, "approve");
 var code = Regex.Match(callbackUrl, "[?&]code=([^&]+)").Groups[1].Value;
-Check("After sign-in the browser returns to EWP with a code", code.Length > 0, callbackUrl.Split('?')[0]);
+Check("Approved: the browser returns to EWP with a code", code.Length > 0, callbackUrl.Split('?')[0]);
 
 var tokenResponse = await ewp.PostAsync(tokenEndpoint, new FormUrlEncodedContent(new Dictionary<string, string>
 {
@@ -189,6 +214,14 @@ var tokenPayload = JsonNode.Parse(Encoding.UTF8.GetString(Base64UrlDecode(custom
 var grantedDetails = tokenPayload["authorization_details"];
 Check("The token states exactly what the customer authorised (authorization_details)",
     grantedDetails is not null && JsonNode.DeepEquals(grantedDetails, authorizationDetails), grantedDetails?.ToJsonString() ?? "missing");
+
+// A second request, declined: no code - EWP learns only that the customer said no.
+var (_, declinedRequestUri, _) = await PushSignedAsync();
+var declinedAuthorize = $"{Authority}/connect/authorize?client_id={ClientId}&request_uri={Uri.EscapeDataString(declinedRequestUri!)}";
+var (declinedConsent, declinedConsentUrl) = await Navigate(await browser.GetAsync(declinedAuthorize), declinedAuthorize);
+var declinedCallback = await DecideAsync(await declinedConsent.Content.ReadAsStringAsync(), declinedConsentUrl, "decline");
+Check("Declined: the browser returns to EWP with access_denied and NO code",
+    declinedCallback.Contains("error=access_denied") && !Regex.IsMatch(declinedCallback, "[?&]code="), declinedCallback.Split('?').Last());
 
 Console.WriteLine();
 Console.WriteLine("2. The Partner API: only EWP's certificate, only a token bound to it");

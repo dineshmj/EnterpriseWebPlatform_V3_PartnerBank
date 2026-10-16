@@ -80,3 +80,13 @@ button {
 }
 
 button:hover { background: var(--pb-green-dark); }
+
+/* Consent */
+h2 { margin: 20px 0 6px; font-size: 15px; color: var(--pb-muted); font-weight: normal; text-transform: uppercase; letter-spacing: 0.04em; }
+.facts { display: grid; grid-template-columns: max-content 1fr; gap: 6px 16px; margin: 0; }
+.facts dt { color: var(--pb-muted); }
+.facts dd { margin: 0; }
+.decisions { display: flex; gap: 12px; margin-top: 20px; }
+.decisions button { flex: 1; margin-top: 0; }
+button.secondary { background: #fff; color: var(--pb-green); border: 1px solid var(--pb-green); }
+button.secondary:hover { background: var(--pb-sand); }
