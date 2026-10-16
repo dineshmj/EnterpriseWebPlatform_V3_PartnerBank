@@ -1,5 +1,4 @@
 using Microsoft.AspNetCore.Authentication.JwtBearer;
-using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 
 using PartnerBank.Api.Api;
@@ -112,14 +111,14 @@ using (var scope = app.Services.CreateScope())
     // │ EnsureCreated never changes an EXISTING database: a file from an older version lacks
     // │ the newer tables. Fail at start-up with the fix, instead of on the first request.
     // └──────────────────────────────────────────────────────────────────────────────────────
-    try
-    {
-        _ = db.GoldOrders.Any() && db.GoldHoldings.Any() && db.Activity.Any();
-    }
-    catch (SqliteException exception) when (exception.Message.Contains("no such table", StringComparison.OrdinalIgnoreCase))
+    // The tables this version needs, checked in SQLite's own catalogue - no failing query, no error noise in the log.
+    string[] required = ["Products", "Handoffs", "Applications", "GoldOrders", "GoldHoldings", "Activity"];
+    var existing = db.Database.SqlQueryRaw<string>("SELECT name AS Value FROM sqlite_master WHERE type = 'table'").ToHashSet(StringComparer.Ordinal);
+    var missing = required.Where(table => !existing.Contains(table)).ToList();
+    if (missing.Count > 0)
     {
         throw new InvalidOperationException(
-            $"The Partner Bank database was created by an older version ({exception.Message}). Stop the API, delete partner-bank.db in {app.Environment.ContentRootPath}, and start again.");
+            $"The Partner Bank database was created by an older version (missing: {string.Join(", ", missing)}). Stop the API, delete partner-bank.db* in {app.Environment.ContentRootPath}, and start again.");
     }
 }
 
