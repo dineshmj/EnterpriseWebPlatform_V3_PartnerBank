@@ -118,7 +118,12 @@ if (requestUri is not null)
     Check("The pushed request leads to the Partner Bank's sign-in", location.Contains("/Account/Login", StringComparison.OrdinalIgnoreCase), $"{(int)pushed.StatusCode} -> {location}");
 }
 
-// 5. A token for EWP's own calls, bound to its certificate
+// 5. The mTLS port serves only server-to-server endpoints
+var mtlsOrigin = new Uri(tokenEndpoint!).GetLeftPart(UriPartial.Authority);
+var signInOnMtls = await ewp.GetAsync($"{mtlsOrigin}/Account/Login");
+Check("The mTLS port does not serve the sign-in page", signInOnMtls.StatusCode == HttpStatusCode.NotFound, $"{mtlsOrigin} -> HTTP {(int)signInOnMtls.StatusCode}");
+
+// 6. A token for EWP's own calls, bound to its certificate
 var tokenResponse = await TryPost(ewp, tokenEndpoint!, new FormUrlEncodedContent(new Dictionary<string, string>
 {
     ["grant_type"] = "client_credentials",

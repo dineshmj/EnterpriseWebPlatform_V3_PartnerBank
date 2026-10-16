@@ -16,7 +16,7 @@ EWP's server  ──mutual TLS──►  token request: an access token BOUND to
 
 | Part | Port | Status |
 |---|---|---|
-| `PartnerBank.AuthorizationServer` - Duende IdentityServer 8 | 47401 | built |
+| `PartnerBank.AuthorizationServer` - Duende IdentityServer 8 | 47401 public (people), 47411 mutual TLS (EWP's server) | built |
 | Products window (the partner's web app) | 47402 | to come |
 | Partner Bank API | 47403 | to come |
 
@@ -49,16 +49,17 @@ On the home PC, copy those three into `%USERPROFILE%\.ewp-pki`. Never copy `ewp-
 dotnet run --project src\PartnerBank.AuthorizationServer
 ```
 
-It listens on `https://localhost:47401` only.
+It listens on `https://localhost:47401` (public: sign-in, authorize, discovery - never asks for a certificate) and `https://localhost:47411` (mutual TLS: PAR and token - a client certificate is required in the TLS handshake). Discovery advertises the 47411 addresses as `mtls_endpoint_aliases`.
 
 **On the home PC** (192.168.1.12), to be reachable from the laptop:
 
 ```powershell
 # Once, in an administrator PowerShell - only from the home network (Private profile):
 New-NetFirewallRule -DisplayName "EWP Partner Bank - authorization server" -Direction Inbound -Protocol TCP -LocalPort 47401 -Action Allow -Profile Private
+New-NetFirewallRule -DisplayName "EWP Partner Bank - authorization server (mTLS)" -Direction Inbound -Protocol TCP -LocalPort 47411 -Action Allow -Profile Private
 
-# Each time:
-dotnet run --project src\PartnerBank.AuthorizationServer --urls https://*:47401
+# Each time (both ports on every interface):
+dotnet run --project src\PartnerBank.AuthorizationServer -- --Kestrel:Endpoints:Public:Url=https://*:47401 --Kestrel:Endpoints:Mtls:Url=https://*:47411
 ```
 
 And on the laptop, one line in `C:\Windows\System32\drivers\etc\hosts` (administrator):
@@ -76,7 +77,7 @@ dotnet run tools\HandshakeCheck\HandshakeCheck.cs                    # the serve
 dotnet run tools\HandshakeCheck\HandshakeCheck.cs -- 192.168.1.12    # the server on the home PC
 ```
 
-It checks discovery, PAR with and without EWP's certificate, that an authorization request that was not pushed is refused, that a pushed one leads to the sign-in, and that EWP's token is bound to its certificate. It prints a link for a browser test; the browser needs `ewp-trust-root.cer` in "Trusted Root Certification Authorities" to open it without a warning.
+It checks discovery, PAR with and without EWP's certificate (without one there is no connection at all), that an authorization request that was not pushed is refused, that a pushed one leads to the sign-in, that the mTLS port serves no pages for people, and that EWP's token is bound to its certificate. It prints a link for a browser test; the browser needs `ewp-trust-root.cer` in "Trusted Root Certification Authorities" to open it without a warning.
 
 Demo customers (Development only): `alex.partner` and `sam.partner` - see `appsettings.Development.json`.
 
@@ -89,7 +90,8 @@ Demo customers (Development only): `alex.partner` and `sam.partner` - see `appse
 | 3 | **PKCE (S256) required**, plain PKCE refused | `Config.cs` |
 | 4 | **Certificate-bound access tokens** (`cnf.x5t#S256`): a stolen token is useless without EWP's private key | `Program.cs` (`MutualTls`) |
 | 5 | **Short lifetimes**: authorization code 60 s, access token 5 min, no refresh tokens | `Config.cs` |
-| 6 | **TLS 1.2 / 1.3 only**; a certificate is asked for but only the mTLS endpoints require it, so customers' browsers need none | `Program.cs` (Kestrel) |
+| 6 | **Two ports, TLS 1.2 / 1.3 only**: the public port never asks for a client certificate (no certificate picker for customers); the mTLS port REQUIRES one in the TLS handshake - without it there is no connection | `appsettings.json` (`Kestrel:Endpoints`), `Program.cs` |
+| 6a | **The mTLS port serves only PAR, token, revocation and introspection**; every page for people answers 404 there | `Security/MtlsPortGuard.cs` |
 | 7 | **Fixed issuer**, never taken from the request's Host header | `Program.cs` |
 | 8 | **Fail closed at start-up**: no server certificate, password or trust root - no server | `Configuration/PartnerBankOptions.cs` |
 | 9 | **Browser security headers**: CSP without inline code, never framed, no MIME sniffing, no referrer | `Security/SecurityHeaders.cs` |

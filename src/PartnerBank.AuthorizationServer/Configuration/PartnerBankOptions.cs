@@ -10,6 +10,9 @@ public sealed class PartnerBankOptions
     /// <summary>The issuer every token names, e.g. https://partner-auth.ewp.home.arpa:47401 (fixed - never taken from the request).</summary>
     public string IssuerUri { get; init; } = string.Empty;
 
+    /// <summary>Where EWP's server reaches the mutual-TLS endpoints (PAR, token), e.g. https://partner-auth.ewp.home.arpa:47411 - the Mtls port of Kestrel:Endpoints.</summary>
+    public string MtlsBaseUrl { get; init; } = string.Empty;
+
     public TlsOptions Tls { get; init; } = new();
 
     public EwpClientOptions EwpClient { get; init; } = new();

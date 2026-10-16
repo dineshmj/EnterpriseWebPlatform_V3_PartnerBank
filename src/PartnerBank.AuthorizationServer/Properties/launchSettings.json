@@ -4,7 +4,6 @@
     "PartnerBank.AuthorizationServer": {
       "commandName": "Project",
       "launchBrowser": false,
-      "applicationUrl": "https://localhost:47401",
       "environmentVariables": {
         "ASPNETCORE_ENVIRONMENT": "Development"
       }
