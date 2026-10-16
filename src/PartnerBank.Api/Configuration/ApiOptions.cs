@@ -27,6 +27,9 @@ public sealed class ApiOptions
     /// <summary>The only organisation that may call the external API: EWP's client ID at the authorization server.</summary>
     public string EwpClientId { get; init; } = string.Empty;
 
+    /// <summary>EWP as customers know it, for their activity (e.g. "Four Walls").</summary>
+    public string EwpDisplayName { get; init; } = "Four Walls";
+
     /// <summary>The only client that may call the internal API: the Partner's own window.</summary>
     public string WindowClientId { get; init; } = string.Empty;
 

@@ -23,6 +23,12 @@ public sealed class PartnerBankOptions
 
     public List<DemoCustomerOptions> DemoCustomers { get; init; } = [];
 
+    /// <summary>The Partner Bank API's internal port (localhost only) - for the public gold price on the consent page.</summary>
+    public string ApiInternalBaseUrl { get; init; } = string.Empty;
+
+    /// <summary>The address the Partner's own host names resolve to (127.0.0.1: the API runs on the same machine).</summary>
+    public string? ResolvePartnerHostsTo { get; init; }
+
     /// <summary>Product names for the consent page (the catalogue itself belongs to the Partner Bank API).</summary>
     public Dictionary<string, string> ProductNames { get; init; } = [];
 }

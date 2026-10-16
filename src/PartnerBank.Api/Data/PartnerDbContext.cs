@@ -11,6 +11,12 @@ public sealed class PartnerDbContext(DbContextOptions<PartnerDbContext> options)
 
     public DbSet<ProductApplication> Applications => Set<ProductApplication>();
 
+    public DbSet<GoldOrder> GoldOrders => Set<GoldOrder>();
+
+    public DbSet<GoldHolding> GoldHoldings => Set<GoldHolding>();
+
+    public DbSet<ActivityEntry> Activity => Set<ActivityEntry>();
+
     protected override void OnModelCreating(ModelBuilder model)
     {
         model.Entity<Product>(product =>
@@ -26,6 +32,26 @@ public sealed class PartnerDbContext(DbContextOptions<PartnerDbContext> options)
             handoff.HasKey(h => h.Id);
             handoff.Property(h => h.Id).HasMaxLength(64);
             handoff.Property(h => h.EwpReference).HasMaxLength(64);
+        });
+
+        model.Entity<GoldOrder>(order =>
+        {
+            order.HasKey(o => o.Id);
+            order.HasIndex(o => o.Number).IsUnique();
+            // ┌─ SEC ────────────────────────────────────────────────────────────────────────────────
+            // │ One authorisation, one order: the token's ID is unique here, so a replayed or
+            // │ resent request can never place a second order.
+            // └──────────────────────────────────────────────────────────────────────────────────────
+            order.HasIndex(o => o.AuthorizationRef).IsUnique();
+            order.HasIndex(o => new { o.ReferrerClientId, o.NetworkReference });
+        });
+
+        model.Entity<GoldHolding>(holding => holding.HasKey(h => h.CustomerSubject));
+
+        model.Entity<ActivityEntry>(entry =>
+        {
+            entry.HasKey(e => e.Id);
+            entry.HasIndex(e => new { e.CustomerSubject, e.Id });
         });
 
         model.Entity<ProductApplication>(application =>

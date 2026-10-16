@@ -1,9 +1,11 @@
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 
 using PartnerBank.Api.Api;
 using PartnerBank.Api.Configuration;
 using PartnerBank.Api.Data;
+using PartnerBank.Api.Gold;
 using PartnerBank.Api.Security;
 using PartnerBank.Security;
 
@@ -38,6 +40,8 @@ builder.WebHost.ConfigureKestrel(kestrel => kestrel.UsePartnerTls(serverCertific
 builder.Services.AddDbContext<PartnerDbContext>(options =>
     options.UseSqlite(builder.Configuration.GetConnectionString("PartnerBank")
         ?? throw new InvalidOperationException("ConnectionStrings:PartnerBank is required.")));
+
+builder.Services.AddScoped<GoldDesk>();
 
 var backchannel = TrustedBackchannel.Create(trustRoot, settings.ResolvePartnerHostsTo);
 
@@ -100,7 +104,24 @@ var app = builder.Build();
 // │ file to start again. No migrations - the same rule as EWP's full database scripts.
 // └──────────────────────────────────────────────────────────────────────────────────────
 using (var scope = app.Services.CreateScope())
-    scope.ServiceProvider.GetRequiredService<PartnerDbContext>().Database.EnsureCreated();
+{
+    var db = scope.ServiceProvider.GetRequiredService<PartnerDbContext>();
+    db.Database.EnsureCreated();
+
+    // ┌─ ARCH ───────────────────────────────────────────────────────────────────────────────
+    // │ EnsureCreated never changes an EXISTING database: a file from an older version lacks
+    // │ the newer tables. Fail at start-up with the fix, instead of on the first request.
+    // └──────────────────────────────────────────────────────────────────────────────────────
+    try
+    {
+        _ = db.GoldOrders.Any() && db.GoldHoldings.Any() && db.Activity.Any();
+    }
+    catch (SqliteException exception) when (exception.Message.Contains("no such table", StringComparison.OrdinalIgnoreCase))
+    {
+        throw new InvalidOperationException(
+            $"The Partner Bank database was created by an older version ({exception.Message}). Stop the API, delete partner-bank.db in {app.Environment.ContentRootPath}, and start again.");
+    }
+}
 
 if (!app.Environment.IsDevelopment())
     app.UseHsts();
@@ -114,6 +135,7 @@ app.UseAuthentication();
 app.UseAuthorization();
 app.MapExternalApi();
 app.MapInternalApi();
+app.MapGoldApi();
 
 app.Logger.LogInformation("Partner Bank API: external {External} (mutual TLS), internal {Internal} (localhost), authorization server {Authority}.",
     settings.ExternalBaseUrl, settings.InternalBaseUrl, settings.Authority);

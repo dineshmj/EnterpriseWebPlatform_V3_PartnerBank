@@ -84,6 +84,14 @@ builder.Services
 // └──────────────────────────────────────────────────────────────────────────────────────
 builder.Services.AddTransient<Duende.IdentityServer.ResponseHandling.IAuthorizeResponseGenerator, AuthorizationDetailsResponseGenerator>();
 
+// ┌─ SEC ────────────────────────────────────────────────────────────────────────────────
+// │ The consent page reads the public gold price from the Partner Bank API's internal port
+// │ (localhost), trusting the API only through the PoC's root.
+// └──────────────────────────────────────────────────────────────────────────────────────
+builder.Services
+    .AddHttpClient("PartnerApiInternal", client => client.BaseAddress = new Uri(settings.ApiInternalBaseUrl.TrimEnd('/') + "/"))
+    .ConfigurePrimaryHttpMessageHandler(() => TrustedBackchannel.Create(trustRoot, settings.ResolvePartnerHostsTo));
+
 builder.Services.AddRazorPages();
 
 var app = builder.Build();

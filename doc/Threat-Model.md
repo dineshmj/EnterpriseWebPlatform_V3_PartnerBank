@@ -10,7 +10,7 @@ Scope: the Partner Bank's three deployables and their two boundaries - EWP's ser
 | Customers' Partner Bank sessions and tokens | a stolen session or token acts as the customer |
 | EWP's access to the Partner API | an impostor "EWP" could create window links, read applications - and, next, order gold |
 | Window links | a link opens the Partner's window for one customer |
-| Applications, and next gold orders, holdings and the activity ledger | the Partner Bank's own records of what its customers own |
+| Applications, gold orders, holdings and the activity ledger | the Partner Bank's own records of what its customers own |
 | The Partner Bank's TLS private key | anyone holding it can pose as the Partner Bank |
 
 ## 2. Trust boundaries
@@ -41,6 +41,9 @@ Scope: the Partner Bank's three deployables and their two boundaries - EWP's ser
 | T14 | A request authorises more, or something else, than intended | exactly one `authorization_details` of a known type, inside the signed request, strictly validated; the approved detail travels into the token through the stored code | 12b, 12c |
 | T15 | A stolen mutual-TLS key is used to sign requests (or the reverse) | two separate keys: the TLS key authenticates connections, the ES256 key signs requests; neither can do the other's job | 12a |
 | T16 | A customer approves something other than they think (vague or hidden terms), or one approval is reused for later requests | the consent page shows the SIGNED detail in plain words, who offered it and what was shared; consent is per request and never remembered; only an explicit Approve grants anything | 12d |
+| T17 | EWP (or a stolen token) places more orders, or different ones, than the customer approved | an order takes everything from the token's consented detail; one order per authorisation (unique token ID); a token approved for another purpose is refused | 18a |
+| T18 | A payment advice for the wrong amount, a replayed advice, or a cancel after allocation | exact amount only; idempotent by network reference; allocated gold cannot be cancelled; only the referring organisation's own orders | 18b |
+| T19 | Holdings read without the customer's agreement | only with a consented `holdings_view` token, only the customer's own | 18c |
 
 ## 4. Residual risks (accepted for the PoC)
 

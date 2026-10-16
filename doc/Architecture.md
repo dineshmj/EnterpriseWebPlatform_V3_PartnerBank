@@ -32,7 +32,7 @@ Both trust **one root** (`EWP Local Trust Root (DEVELOPMENT ONLY)`), created by 
 | Deployable | Responsibility | Data |
 |---|---|---|
 | `PartnerBank.AuthorizationServer` | Duende IdentityServer 8: client authentication (mutual TLS for EWP, a secret for the Partner's own window), PAR, sign-in, tokens bound to certificates | in memory (PoC) |
-| `PartnerBank.Api` | the domain microservice: products, window links, applications - and, next, gold orders, holdings and the activity ledger | **SQLite, owned by this deployable alone** |
+| `PartnerBank.Api` | the domain microservice: products, window links, applications, **Digital Gold** (price, orders, payment advice, allocation, holdings) and the customers' activity ledger | **SQLite, owned by this deployable alone** |
 | `PartnerBank.Web` | the customer's window: pages only; every read and change goes through the internal API with the customer's own token | none |
 | `PartnerBank.Security` | shared library: TLS defaults, client-certificate check, trusted back-channel, security headers, port guards | - |
 
@@ -50,6 +50,7 @@ Both trust **one root** (`EWP Local Trust Root (DEVELOPMENT ONLY)`), created by 
 | D8 | **SQLite created at start-up, no migrations** | PoC: delete the file to start again - the same rule as EWP's full database scripts |
 | D9 | **Catalogue**: Term Deposit and Bonus Saver (simple applications) and Digital Gold (the full flow); the home loan was removed | lending is a bounded context of its own and deserves proper treatment later |
 | D10 | **Consent for every request, never remembered** (2026-10-16) | open banking's rule: the customer approves at the organisation that holds the relationship, each specific request on its own - approving one purchase is not approving the next |
+| D11 | **Approve the amount, lock the grams at the order** (2026-10-16): the consent page shows an indicative quote; the order placed right after the approval locks the grams for 5 minutes; a payment after the lock is allocated at the price of the moment | how digital-gold products work: the customer commits to the money, the metal follows the market; never more gold than was paid for |
 
 ## 4. The journey
 
@@ -60,12 +61,14 @@ Both trust **one root** (`EWP Local Trust Root (DEVELOPMENT ONLY)`), created by 
 3. The customer opens the window (single sign-on), chooses a product and applies; the window does this through the internal API.
 4. EWP reads the application's status through the external API.
 
-**Next** (Digital Gold, EWP's "Partner Products → Digital Gold"):
+**Digital Gold - the Partner Bank's side** (verified end to end by `tools\JourneyCheck`, section 5):
 
-1. Sophie enters the AUD amount and the customer's paying account in EWP.
-2. EWP signs and pushes the request (`digital_gold_purchase`); the Partner's window opens; the customer authenticates (a first-time customer registers, pre-filled from EWP's verified data, with a one-time code), sees the quote in grams (price locked a few minutes) and consents.
-3. EWP's Temporal workflow pays the Partner Bank through EWP's Payments saga, then sends the payment advice.
-4. The Partner Bank allocates the grams; its activity ledger records every step; the customer sees holdings and activity in "My Partner Bank" (EWP's "View at Partner Bank": `holdings_view`).
+1. EWP signs and pushes a `digital_gold_purchase` (AUD amount, paying account); the customer signs in and consents, seeing the amount, the masked account and an indicative quote in grams.
+2. EWP places the order with the customer's token: the grams are locked for 5 minutes at the price of that moment (one order per authorisation).
+3. EWP pays the Partner Bank, then sends the payment advice (network reference, exact amount): the grams are allocated; the activity ledger records every step.
+4. With a consented `holdings_view`, EWP reads the customer's grams, today's value and activity.
+
+**Next**: the customer's own window, "My Partner Bank" (holdings and activity); a first-time customer's registration (pre-filled from EWP's verified data, with a one-time code); then EWP's side - "Partner Products → Digital Gold", its Temporal workflow and the payment through EWP's Payments saga.
 
 ## 5. Ports
 

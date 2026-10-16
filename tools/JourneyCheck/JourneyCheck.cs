@@ -10,6 +10,8 @@
 // 2. EWP asks the Partner API for a one-time window link for that customer.
 // 3. The customer opens the window (single sign-on), chooses a product and applies.
 // 4. EWP reads the application's status through the API.
+// 5. Digital Gold: the customer approves AUD 10.00; EWP places the order (grams locked), sends the
+//    payment advice; the grams are allocated; the customer's holdings show them.
 //
 // Needs %USERPROFILE%\.ewp-pki from EWP's ps\pki\New-EwpLocalPki.ps1. Every *.ewp.home.arpa name is
 // connected to the given address directly (no hosts-file entry needed); only the PoC's root is trusted.
@@ -135,7 +137,7 @@ var authorizationDetails = new JsonArray(new JsonObject
     ["customer"] = new JsonObject { ["ewpCustomerNumber"] = "CUST-100009", ["name"] = "Camilla Parker", ["dateOfBirth"] = "1988-07-14", ["kycVerified"] = true },
     ["actor"] = new JsonObject { ["lanId"] = "somit", ["branch"] = "SYD001" }
 });
-async Task<(HttpResponseMessage Response, string? RequestUri, string Body)> PushSignedAsync()
+async Task<(HttpResponseMessage Response, string? RequestUri, string Body)> PushSignedAsync(JsonArray details, string codeVerifier)
 {
     var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
     var requestObject = new JsonObject
@@ -145,8 +147,8 @@ async Task<(HttpResponseMessage Response, string? RequestUri, string Body)> Push
         ["response_type"] = "code", ["redirect_uri"] = RedirectUri,
         ["scope"] = "openid profile partner.products.read partner.applications.write",
         ["state"] = Base64Url(RandomNumberGenerator.GetBytes(16)),
-        ["code_challenge"] = Base64Url(SHA256.HashData(Encoding.ASCII.GetBytes(verifier))), ["code_challenge_method"] = "S256",
-        ["authorization_details"] = authorizationDetails.DeepClone()
+        ["code_challenge"] = Base64Url(SHA256.HashData(Encoding.ASCII.GetBytes(codeVerifier))), ["code_challenge_method"] = "S256",
+        ["authorization_details"] = details.DeepClone()
     };
     var jwtHeader = Base64Url(Encoding.UTF8.GetBytes(new JsonObject { ["alg"] = "ES256", ["typ"] = "oauth-authz-req+jwt", ["kid"] = signingCertificate.Thumbprint }.ToJsonString()));
     var jwtBody = Base64Url(Encoding.UTF8.GetBytes(requestObject.ToJsonString()));
@@ -161,7 +163,7 @@ async Task<(HttpResponseMessage Response, string? RequestUri, string Body)> Push
     return (par, Text(parBody, "request_uri"), parBody);
 }
 
-var (par, requestUri, parBody) = await PushSignedAsync();
+var (par, requestUri, parBody) = await PushSignedAsync(authorizationDetails, verifier);
 Check("EWP pushes a SIGNED request (product_application) over mutual TLS", par.StatusCode == HttpStatusCode.Created && requestUri is not null, requestUri is null ? parBody : "");
 
 var authorizeUrl = $"{Authority}/connect/authorize?client_id={ClientId}&request_uri={Uri.EscapeDataString(requestUri!)}";
@@ -216,12 +218,41 @@ Check("The token states exactly what the customer authorised (authorization_deta
     grantedDetails is not null && JsonNode.DeepEquals(grantedDetails, authorizationDetails), grantedDetails?.ToJsonString() ?? "missing");
 
 // A second request, declined: no code - EWP learns only that the customer said no.
-var (_, declinedRequestUri, _) = await PushSignedAsync();
+var (_, declinedRequestUri, _) = await PushSignedAsync(authorizationDetails, verifier);
 var declinedAuthorize = $"{Authority}/connect/authorize?client_id={ClientId}&request_uri={Uri.EscapeDataString(declinedRequestUri!)}";
 var (declinedConsent, declinedConsentUrl) = await Navigate(await browser.GetAsync(declinedAuthorize), declinedAuthorize);
 var declinedCallback = await DecideAsync(await declinedConsent.Content.ReadAsStringAsync(), declinedConsentUrl, "decline");
 Check("Declined: the browser returns to EWP with access_denied and NO code",
     declinedCallback.Contains("error=access_denied") && !Regex.IsMatch(declinedCallback, "[?&]code="), declinedCallback.Split('?').Last());
+
+// Another approval by the same (signed-in) customer: push, consent (approve), exchange the code.
+async Task<(string? Token, string ConsentHtml)> ApprovedTokenAsync(JsonArray details)
+{
+    var codeVerifier = Base64Url(RandomNumberGenerator.GetBytes(32));
+    var (_, pushed, _) = await PushSignedAsync(details, codeVerifier);
+    var url = $"{Authority}/connect/authorize?client_id={ClientId}&request_uri={Uri.EscapeDataString(pushed!)}";
+    var (page, pageUrl) = await Navigate(await browser.GetAsync(url), url);
+    var html = await page.Content.ReadAsStringAsync();
+    var approved = Regex.Match(await DecideAsync(html, pageUrl, "approve"), "[?&]code=([^&]+)").Groups[1].Value;
+    var exchange = await ewp.PostAsync(tokenEndpoint, new FormUrlEncodedContent(new Dictionary<string, string>
+    {
+        ["grant_type"] = "authorization_code", ["client_id"] = ClientId, ["code"] = WebUtility.UrlDecode(approved),
+        ["redirect_uri"] = RedirectUri, ["code_verifier"] = codeVerifier
+    }));
+    return (Text(await exchange.Content.ReadAsStringAsync(), "access_token"), WebUtility.HtmlDecode(html));
+}
+
+JsonArray Detail(string type, JsonObject extra)
+{
+    var detail = new JsonObject
+    {
+        ["type"] = type,
+        ["customer"] = new JsonObject { ["ewpCustomerNumber"] = "CUST-100009", ["name"] = "Camilla Parker", ["dateOfBirth"] = "1988-07-14", ["kycVerified"] = true },
+        ["actor"] = new JsonObject { ["lanId"] = "somit", ["branch"] = "SYD001" }
+    };
+    foreach (var (name, value) in extra) detail[name] = value?.DeepClone();
+    return new JsonArray(detail);
+}
 
 Console.WriteLine();
 Console.WriteLine("2. The Partner API: only EWP's certificate, only a token bound to it");
@@ -305,6 +336,71 @@ Console.WriteLine("4. EWP follows the application");
 var status = await ewp.SendAsync(ApiRequest(HttpMethod.Get, $"/api/applications?ewpReference={ewpReference}", machineToken));
 var statusJson = await status.Content.ReadAsStringAsync();
 Check("EWP sees the application under its reference", status.IsSuccessStatusCode && statusJson.Contains(applicationNumber) && statusJson.Contains("SUBMITTED"), statusJson);
+
+Console.WriteLine();
+Console.WriteLine("5. Digital Gold: approved, ordered, paid, allocated");
+
+var purchase = Detail("digital_gold_purchase", new JsonObject
+{
+    ["instructedAmount"] = new JsonObject { ["currency"] = "AUD", ["amount"] = "10.00" },
+    ["debtorAccount"] = new JsonObject { ["bsb"] = "062-000", ["accountNumber"] = "72947086" }
+});
+var (goldToken, goldConsent) = await ApprovedTokenAsync(purchase);
+Check("Consent shows the purchase, the masked paying account and indicative grams",
+    goldConsent.Contains("Buy Digital Gold for AUD 10.00") && goldConsent.Contains("062-000 ••••7086") && goldConsent.Contains(" g at today's AUD"),
+    Regex.Match(goldConsent, "about [0-9.]+ g at today's AUD [0-9.,]+/g").Value);
+Check("The customer's purchase token is issued", goldToken is not null);
+
+var placed = await ewp.SendAsync(ApiRequest(HttpMethod.Post, "/api/gold-orders", goldToken));
+var placedJson = await placed.Content.ReadAsStringAsync();
+var orderNumber = Text(placedJson, "number");
+var orderGrams = decimal.Parse(Text(placedJson, "grams") ?? "0", System.Globalization.CultureInfo.InvariantCulture);
+Check("EWP places the order from the APPROVED purchase - grams locked, awaiting payment",
+    placed.StatusCode == HttpStatusCode.Created && Text(placedJson, "status") == "AWAITING_PAYMENT" && orderGrams > 0,
+    $"{orderNumber}: {orderGrams} g at AUD {Text(placedJson, "pricePerGram")}/g, locked until {Text(placedJson, "quoteExpiresAt")}");
+
+var replaced = await ewp.SendAsync(ApiRequest(HttpMethod.Post, "/api/gold-orders", goldToken));
+Check("The same authorisation cannot place a second order", replaced.StatusCode == HttpStatusCode.OK && Text(await replaced.Content.ReadAsStringAsync(), "number") == orderNumber,
+    $"HTTP {(int)replaced.StatusCode}");
+
+var otherPurpose = await ewp.SendAsync(ApiRequest(HttpMethod.Post, "/api/gold-orders", customerToken));
+Check("A token approved for something else (a term deposit application) cannot buy gold", otherPurpose.StatusCode == HttpStatusCode.Forbidden, $"HTTP {(int)otherPurpose.StatusCode}");
+
+var wrongAmount = await ewp.SendAsync(ApiRequest(HttpMethod.Post, $"/api/gold-orders/{orderNumber}/payment-advice", machineToken,
+    new JsonObject { ["networkReference"] = "NPP-CHECK-0001", ["amount"] = 9.99m }));
+Check("A payment advice for the WRONG amount is refused", wrongAmount.StatusCode == HttpStatusCode.Conflict, $"HTTP {(int)wrongAmount.StatusCode}");
+
+var advice = await ewp.SendAsync(ApiRequest(HttpMethod.Post, $"/api/gold-orders/{orderNumber}/payment-advice", machineToken,
+    new JsonObject { ["networkReference"] = "NPP-CHECK-0001", ["amount"] = 10.00m }));
+var adviceJson = await advice.Content.ReadAsStringAsync();
+Check("The payment advice allocates the grams", advice.IsSuccessStatusCode && Text(adviceJson, "status") == "ALLOCATED", Text(adviceJson, "status") ?? $"HTTP {(int)advice.StatusCode}");
+
+var again = await ewp.SendAsync(ApiRequest(HttpMethod.Post, $"/api/gold-orders/{orderNumber}/payment-advice", machineToken,
+    new JsonObject { ["networkReference"] = "NPP-CHECK-0001", ["amount"] = 10.00m }));
+Check("The same payment advice again changes nothing", again.IsSuccessStatusCode && Text(await again.Content.ReadAsStringAsync(), "status") == "ALLOCATED", $"HTTP {(int)again.StatusCode}");
+
+var cancelAllocated = await ewp.SendAsync(ApiRequest(HttpMethod.Post, $"/api/gold-orders/{orderNumber}/cancel", machineToken,
+    new JsonObject { ["reason"] = "Check: too late to cancel." }));
+Check("Allocated gold cannot be cancelled", cancelAllocated.StatusCode == HttpStatusCode.Conflict, $"HTTP {(int)cancelAllocated.StatusCode}");
+
+var (secondToken, _) = await ApprovedTokenAsync(purchase);
+var second = await ewp.SendAsync(ApiRequest(HttpMethod.Post, "/api/gold-orders", secondToken));
+var secondNumber = Text(await second.Content.ReadAsStringAsync(), "number");
+var cancelled = await ewp.SendAsync(ApiRequest(HttpMethod.Post, $"/api/gold-orders/{secondNumber}/cancel", machineToken,
+    new JsonObject { ["reason"] = "The payment from Four Walls failed." }));
+Check("An order awaiting payment can be cancelled (e.g. the payment failed)", cancelled.IsSuccessStatusCode && Text(await cancelled.Content.ReadAsStringAsync(), "status") == "CANCELLED",
+    $"{secondNumber}: HTTP {(int)cancelled.StatusCode}");
+
+var (holdingsToken, holdingsConsent) = await ApprovedTokenAsync(Detail("holdings_view", new JsonObject()));
+var holdings = await ewp.SendAsync(ApiRequest(HttpMethod.Get, "/api/holdings", holdingsToken));
+var holdingsJson = await holdings.Content.ReadAsStringAsync();
+var heldGrams = decimal.Parse(Text(holdingsJson, "grams") ?? "0", System.Globalization.CultureInfo.InvariantCulture);
+Check("With an approved holdings view: the grams and the activity", holdingsConsent.Contains("Show your Partner Bank holdings and activity") &&
+    holdings.IsSuccessStatusCode && heldGrams >= orderGrams && holdingsJson.Contains(orderNumber!) && holdingsJson.Contains("allocated"),
+    $"{heldGrams} g, worth AUD {Text(holdingsJson, "valueAud")}");
+
+var holdingsWithPurchase = await ewp.SendAsync(ApiRequest(HttpMethod.Get, "/api/holdings", goldToken));
+Check("A purchase token cannot read holdings", holdingsWithPurchase.StatusCode == HttpStatusCode.Forbidden, $"HTTP {(int)holdingsWithPurchase.StatusCode}");
 
 Console.WriteLine();
 Console.WriteLine(failures == 0 ? "All checks passed." : $"{failures} check(s) failed.");

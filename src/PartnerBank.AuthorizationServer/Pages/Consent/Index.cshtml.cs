@@ -19,7 +19,7 @@ namespace PartnerBank.AuthorizationServer.Pages.Consent;
 /// One decision per request - nothing is remembered.
 /// </summary>
 [Authorize]
-public sealed class IndexModel(IIdentityServerInteractionService interaction, PartnerBankOptions settings) : PageModel
+public sealed class IndexModel(IIdentityServerInteractionService interaction, PartnerBankOptions settings, IHttpClientFactory httpClients, ILogger<IndexModel> logger) : PageModel
 {
     private static readonly CultureInfo Australia = CultureInfo.GetCultureInfo("en-AU");
 
@@ -39,6 +39,34 @@ public sealed class IndexModel(IIdentityServerInteractionService interaction, Pa
 
     public string? OfferedBy { get; private set; }
 
+    private decimal? PurchaseAmount { get; set; }
+
+    // ┌─ ARCH ───────────────────────────────────────────────────────────────────────────────
+    // │ An INDICATIVE quote: the customer approves the AUD amount; the grams are locked when
+    // │ the order is placed (straight after this approval). If the price cannot be read, the
+    // │ page says so - the approval itself never depends on it.
+    // └──────────────────────────────────────────────────────────────────────────────────────
+    private async Task<string> IndicativeGramsAsync(decimal amount)
+    {
+        try
+        {
+            var price = await httpClients.CreateClient("PartnerApiInternal")
+                .GetFromJsonAsync<GoldPriceView>("internal/gold-price", HttpContext.RequestAborted);
+            if (price is { PricePerGram: > 0 })
+            {
+                var grams = decimal.Floor(amount / price.PricePerGram * 10_000m) / 10_000m;
+                return $"about {grams:0.0000} g at today's AUD {price.PricePerGram.ToString("N2", Australia)}/g - fixed when your order is placed";
+            }
+        }
+        catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException or System.Text.Json.JsonException)
+        {
+            logger.LogWarning(exception, "The gold price could not be read for the consent page.");
+        }
+        return "worked out at today's price when your order is placed";
+    }
+
+    private sealed record GoldPriceView(decimal PricePerGram);
+
     public async Task<IActionResult> OnGetAsync(string? returnUrl)
     {
         ReturnUrl = returnUrl;
@@ -50,6 +78,8 @@ public sealed class IndexModel(IIdentityServerInteractionService interaction, Pa
             await interaction.DenyAuthorizationAsync(context, InteractionError.AccessDenied, HttpContext.RequestAborted, "The request could not be shown to the customer.");
             return Redirect(returnUrl!);
         }
+        if (PurchaseAmount is { } amount)
+            Facts.Add(("Grams", await IndicativeGramsAsync(amount)));
         return Page();
     }
 
@@ -104,7 +134,7 @@ public sealed class IndexModel(IIdentityServerInteractionService interaction, Pa
                 Asked = $"Buy Digital Gold for AUD {amount.ToString("N2", Australia)}";
                 var account = (string)detail["debtorAccount"]!["accountNumber"]!;
                 Facts.Add(("Paid from", $"your {ClientName} account {(string)detail["debtorAccount"]!["bsb"]!} ••••{account[^4..]}"));
-                Facts.Add(("Grams", "quoted at today's price before you pay"));
+                PurchaseAmount = amount;
                 break;
             case AuthorizationDetails.HoldingsView:
                 Asked = "Show your Partner Bank holdings and activity";
