@@ -158,7 +158,13 @@ public sealed class GoldDesk(PartnerDbContext db, TimeProvider clock, ApiOptions
     /// <summary>The referring organisation as the customer knows it (e.g. "Four Walls"), not its technical client ID.</summary>
     private string Name(string referrerClientId) => referrerClientId == settings.EwpClientId ? settings.EwpDisplayName : referrerClientId;
 
-    private static string Time(DateTimeOffset at) => at.ToString("HH:mm:ss 'UTC'", CultureInfo.InvariantCulture);
+    // ┌─ ARCH ───────────────────────────────────────────────────────────────────────────────
+    // │ Times are STORED in UTC; a time written into a customer's activity sentence is in
+    // │ Sydney time - the same as the times the window shows next to each entry.
+    // └──────────────────────────────────────────────────────────────────────────────────────
+    private static readonly TimeZoneInfo Sydney = TimeZoneInfo.FindSystemTimeZoneById("Australia/Sydney");
+
+    private static string Time(DateTimeOffset at) => TimeZoneInfo.ConvertTime(at, Sydney).ToString("h:mm:ss tt", Australia) + " (Sydney time)";
 
     private static string NewNumber(DateTimeOffset now)
     {
