@@ -24,7 +24,7 @@ public sealed class SignOutModel(IAntiforgery antiforgery) : PageModel
         if (User.Identity?.IsAuthenticated == true && !await antiforgery.IsRequestValidAsync(HttpContext))
             return BadRequest();
 
-        return SignOut(new AuthenticationProperties { RedirectUri = "/" },
+        return SignOut(new AuthenticationProperties { RedirectUri = "/SignedOut" },
             CookieAuthenticationDefaults.AuthenticationScheme, OpenIdConnectDefaults.AuthenticationScheme);
     }
 

@@ -69,7 +69,7 @@ builder.Services
         // │ again. Sign-out returns to the window's home page.
         // └──────────────────────────────────────────────────────────────────────────────────────
         options.MaxAge = TimeSpan.FromMinutes(2);
-        options.SignedOutRedirectUri = "/";
+        options.SignedOutRedirectUri = "/SignedOut";
     });
 
 builder.Services.AddHttpContextAccessor();
