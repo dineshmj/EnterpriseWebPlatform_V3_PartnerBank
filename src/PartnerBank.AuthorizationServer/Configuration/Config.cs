@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using System.Security.Cryptography.X509Certificates;
 
 using Duende.IdentityModel;
 using Duende.IdentityServer;
@@ -32,7 +33,7 @@ public static class Config
         new("partner-api", "Partner Bank API") { Scopes = { ProductsRead, ApplicationsWrite, Customer } }
     ];
 
-    public static IEnumerable<Client> Clients(EwpClientOptions ewp, ProductsWindowClientOptions productsWindow)
+    public static IEnumerable<Client> Clients(EwpClientOptions ewp, X509Certificate2 ewpRequestSigning, ProductsWindowClientOptions productsWindow)
     {
         if (string.IsNullOrWhiteSpace(productsWindow.ClientId) || string.IsNullOrWhiteSpace(productsWindow.Secret))
             throw new InvalidOperationException("PartnerBank:ProductsWindowClient:ClientId and Secret are required.");
@@ -83,6 +84,16 @@ public static class Config
                 new Secret(ewp.CertificateSubject, "EWP client certificate (tls_client_auth)")
                 {
                     Type = IdentityServerConstants.SecretTypes.X509CertificateName
+                },
+                // ┌─ SEC ────────────────────────────────────────────────────────────────────────────────
+                // │ EWP's request-signing key (public part, as a JWK with its key ID): it verifies the
+                // │ signature of EWP's request objects. A separate key from the mutual-TLS one; it
+                // │ authenticates no connection (no client-authentication validator is registered for
+                // │ signed JWTs at the token endpoint).
+                // └──────────────────────────────────────────────────────────────────────────────────────
+                new Secret(Authorization.RequestSigningKey.ToJwk(ewpRequestSigning), "EWP request signing (JAR)")
+                {
+                    Type = IdentityServerConstants.SecretTypes.JsonWebKey
                 }
             },
 
@@ -98,6 +109,18 @@ public static class Config
             RequirePushedAuthorization = true,
             RequirePkce = true,
             AllowPlainTextPkce = false,
+
+            // ┌─ SEC ────────────────────────────────────────────────────────────────────────────────
+            // │ FAPI 2.0 Message Signing: every authorization request from EWP is a SIGNED request
+            // │ object (JAR, RFC 9101) - signature, issuer, audience and lifetime are checked; an
+            // │ unsigned or altered request is refused. The Partner Bank keeps signed evidence of
+            // │ exactly what EWP asked for (non-repudiation).
+            // └──────────────────────────────────────────────────────────────────────────────────────
+            RequireRequestObject = true,
+
+            // The approved authorization_details travel into the access token under their own name.
+            ClientClaimsPrefix = string.Empty,
+            AlwaysSendClientClaims = true,
 
             RedirectUris = ewp.RedirectUris,
             AllowedScopes =

@@ -1,3 +1,5 @@
+using System.Security.Cryptography.X509Certificates;
+
 using PartnerBank.Security;
 
 namespace PartnerBank.AuthorizationServer.Configuration;
@@ -29,6 +31,22 @@ public sealed class EwpClientOptions
 
     /// <summary>The exact subject of EWP's client certificate (RFC 8705 tls_client_auth).</summary>
     public string CertificateSubject { get; init; } = string.Empty;
+
+    /// <summary>EWP's request-signing certificate (public part only): its key verifies EWP's signed authorization requests (JAR).</summary>
+    public string RequestSigningCertificatePath { get; init; } = string.Empty;
+
+    // ┌─ SEC ────────────────────────────────────────────────────────────────────────────────
+    // │ Fail closed: without EWP's signing certificate the server does not start - it never
+    // │ falls back to accepting unsigned requests.
+    // └──────────────────────────────────────────────────────────────────────────────────────
+    public X509Certificate2 LoadRequestSigningCertificate()
+    {
+        var path = Environment.ExpandEnvironmentVariables(RequestSigningCertificatePath ?? string.Empty);
+        if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
+            throw new InvalidOperationException(
+                $"PartnerBank:EwpClient:RequestSigningCertificatePath must name an existing file (got '{path}'). Copy ewp-request-signing.cer from EWP's %USERPROFILE%\\.ewp-pki - see README.md.");
+        return X509CertificateLoader.LoadCertificateFromFile(path);
+    }
 
     public List<string> RedirectUris { get; init; } = [];
 }

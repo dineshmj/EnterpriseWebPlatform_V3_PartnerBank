@@ -5,9 +5,11 @@ A **separate organisation** for the EnterpriseWebPlatform V3 proof of concept: a
 The journey follows the FAPI 2.0 pattern - mutual TLS and a pushed authorization request first, the Partner's window only after that:
 
 ```
-1. EWP's server ──mTLS (EWP's client certificate)──► authorization server: PAR ──► request_uri (60 s, once)
+1. EWP's server ──mTLS (EWP's client certificate)──► authorization server: PAR with a SIGNED request object (JAR)
+   stating exactly what is authorised (authorization_details) ──► request_uri (60 s, once)
    Customer's browser ──request_uri──► Partner Bank sign-in ──► back to EWP with a one-time code
-   EWP's server ──mTLS──► token: an access token for THIS customer, BOUND to EWP's certificate
+   EWP's server ──mTLS──► token: an access token for THIS customer, BOUND to EWP's certificate,
+   carrying the authorization_details the customer authorised
 
 2. EWP's server ──mTLS + token──► Partner API  POST /api/handoffs {ewpReference}  ──► one-time window link (2 min)
 
@@ -37,15 +39,16 @@ The certificates come from EWP's repository - its local certificate authority pl
 powershell.exe -ExecutionPolicy Bypass -File .\ps\pki\New-EwpLocalPki.ps1
 ```
 
-It writes to `%USERPROFILE%\.ewp-pki` (outside every repository). This repository needs three of those files:
+It writes to `%USERPROFILE%\.ewp-pki` (outside every repository). This repository needs four of those files:
 
 | File | What |
 |---|---|
 | `ewp-trust-root.cer` | the root that client certificates (and the Partner's own servers) must chain to |
+| `ewp-request-signing.cer` | EWP's request-signing certificate - the PUBLIC part only: its key verifies EWP's signed requests |
 | `partner-bank-server.pfx` | the Partner Bank's TLS certificate (all three host names) |
 | `partner-bank-server.pfx.password` | its password |
 
-On the home PC, copy those three into `%USERPROFILE%\.ewp-pki`. Never copy `ewp-trust-root.pfx` (the root's private key) or `ewp-partner-client.pfx` (EWP's private key) - they belong to the other organisations.
+On the home PC, copy those four into `%USERPROFILE%\.ewp-pki`. Never copy `ewp-trust-root.pfx` (the root's private key), `ewp-partner-client.pfx` or `ewp-request-signing.pfx` (EWP's private keys) - they belong to the other organisations.
 
 ## Running
 
@@ -94,11 +97,11 @@ And on the laptop, in `C:\Windows\System32\drivers\etc\hosts` (administrator) - 
 
 ## Checking it
 
-Both tools are single-file .NET 10 apps acting from EWP's side (EWP's client certificate, trusting only the PoC's root); they connect to the given address directly, so they need no hosts-file entry.
+Both tools are single-file .NET 10 apps acting from EWP's side (EWP's client certificate and request-signing key, trusting only the PoC's root); they connect to the given address directly, so they need no hosts-file entry. The handshake check also proves the refusals: an unsigned request, one altered on the way, one signed with another key, and missing, unknown or invalid `authorization_details`.
 
 ```powershell
-dotnet run tools\HandshakeCheck\HandshakeCheck.cs -- 192.168.1.12   # the authorization server: 13 checks
-dotnet run tools\JourneyCheck\JourneyCheck.cs -- 192.168.1.12       # the whole journey, as EWP AND as the customer's browser: 16 checks
+dotnet run tools\HandshakeCheck\HandshakeCheck.cs -- 192.168.1.12   # the authorization server: 21 checks
+dotnet run tools\JourneyCheck\JourneyCheck.cs -- 192.168.1.12       # the whole journey, as EWP AND as the customer's browser: 17 checks
 ```
 
 Leave out the address for the Partner Bank on the same machine. The handshake check prints a link for a browser test; the browser needs `ewp-trust-root.cer` in "Trusted Root Certification Authorities" to open it without a warning.
@@ -124,6 +127,9 @@ Demo customers (Development only): `alex.partner` and `sam.partner` - see the au
 | 10 | **No open redirect** after sign-in; one message for an unknown user and a wrong password | `Pages/Account/Login.cshtml.cs` |
 | 11 | **Error details only in Development** | `Pages/Error.cshtml.cs` |
 | 12 | **The products window is a confidential client** with a hashed secret, code + PKCE and PAR - like every client | `Config.cs` |
+| 12a | **Signed requests (JAR, RFC 9101 - FAPI 2.0 Message Signing)**: every authorization request from EWP is a request object signed with EWP's request-signing key (ES256, registered as a JWK with its key ID; a separate key from the mutual-TLS one), typed `oauth-authz-req+jwt` (strict), with issuer, audience and lifetime checked; an unsigned, altered or wrongly signed request is refused | `Config.cs` (`RequireRequestObject`), `Program.cs` (`StrictJarValidation`), `Authorization/RequestSigningKey.cs` |
+| 12b | **Exactly what is authorised (RAR, RFC 9396)**: `authorization_details` must sit INSIDE the signed request - exactly one detail of a known type (`digital_gold_purchase`, `product_application`, `holdings_view`), only its fields, every value allow-listed (AUD amounts 0.01-50,000 in cents, BSB and account formats, the EWP-verified customer, the acting staff member); anything else refuses the request | `Authorization/AuthorizationDetails.cs`, `Authorization/AuthorizationDetailsRequestValidator.cs` |
+| 12c | **The approved detail travels into the access token** (`authorization_details` claim) through the stored authorization code - never through the browser - validated again on the way | `Authorization/AuthorizationDetailsResponseGenerator.cs`, `Authorization/AuthorizationDetailsTokenValidator.cs` |
 
 **API (`PartnerBank.Api`)**
 

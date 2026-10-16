@@ -3,8 +3,8 @@
 //   dotnet run tools/HandshakeCheck/HandshakeCheck.cs                 (the server on this machine)
 //   dotnet run tools/HandshakeCheck/HandshakeCheck.cs -- 192.168.1.12 (the server on the home PC)
 //
-// Needs %USERPROFILE%\.ewp-pki from EWP's ps\pki\New-EwpLocalPki.ps1 (EWP's client certificate and
-// the trust root). It connects to partner-auth.ewp.home.arpa at the given address itself, so no
+// Needs %USERPROFILE%\.ewp-pki from EWP's ps\pki\New-EwpLocalPki.ps1 (EWP's client certificate, its
+// request-signing key and the trust root). It connects to partner-auth.ewp.home.arpa at the given address itself, so no
 // hosts-file entry is needed, and it trusts ONLY the PoC's root - never a root Windows trusts.
 
 using System.Net;
@@ -14,6 +14,7 @@ using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 
 const string Authority = "https://partner-auth.ewp.home.arpa:47401";
 const string ClientId = "FourWalls.Ewp.PartnerProducts";
@@ -24,6 +25,9 @@ var pki = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserP
 var trustRoot = X509CertificateLoader.LoadCertificateFromFile(Path.Combine(pki, "ewp-trust-root.cer"));
 var clientCertificate = X509CertificateLoader.LoadPkcs12FromFile(
     Path.Combine(pki, "ewp-partner-client.pfx"), File.ReadAllText(Path.Combine(pki, "ewp-partner-client.pfx.password")).Trim());
+var signingCertificate = X509CertificateLoader.LoadPkcs12FromFile(
+    Path.Combine(pki, "ewp-request-signing.pfx"), File.ReadAllText(Path.Combine(pki, "ewp-request-signing.pfx.password")).Trim());
+var signingKey = signingCertificate.GetECDsaPrivateKey()!;
 
 var failures = 0;
 void Check(string name, bool passed, string detail = "")
@@ -81,28 +85,104 @@ Check("PAR is required", Text(discovery, "require_pushed_authorization_requests"
 Check("Certificate-bound access tokens are advertised", Text(discovery, "tls_client_certificate_bound_access_tokens") == "True");
 Check("tls_client_auth is a supported client authentication", Text(discovery, "token_endpoint_auth_methods_supported")?.Contains("tls_client_auth") == true);
 Check("mTLS endpoints are advertised", tokenEndpoint is not null && parEndpoint is not null, $"token {tokenEndpoint}, PAR {parEndpoint}");
+Check("The authorization_details types are advertised", Text(discovery, "authorization_details_types_supported")?.Contains("digital_gold_purchase") == true,
+    Text(discovery, "authorization_details_types_supported") ?? "none");
 
-// 2. PAR
+// 2. PAR - a request object signed by EWP (JAR), stating exactly what is authorised (authorization_details)
 var verifier = Base64Url(RandomNumberGenerator.GetBytes(32));
 var challenge = Base64Url(SHA256.HashData(Encoding.ASCII.GetBytes(verifier)));
-FormUrlEncodedContent ParRequest() => new(new Dictionary<string, string>
+
+JsonArray Details(string type, JsonObject? extra = null)
 {
-    ["client_id"] = ClientId,
-    ["response_type"] = "code",
-    ["redirect_uri"] = RedirectUri,
-    ["scope"] = "openid profile partner.products.read",
-    ["state"] = Base64Url(RandomNumberGenerator.GetBytes(16)),
-    ["code_challenge"] = challenge,
-    ["code_challenge_method"] = "S256"
+    var detail = new JsonObject
+    {
+        ["type"] = type,
+        ["customer"] = new JsonObject { ["ewpCustomerNumber"] = "CUST-100009", ["name"] = "Camilla Parker", ["dateOfBirth"] = "1988-07-14", ["kycVerified"] = true },
+        ["actor"] = new JsonObject { ["lanId"] = "somit", ["branch"] = "SYD001" }
+    };
+    foreach (var (name, value) in extra ?? new JsonObject()) detail[name] = value?.DeepClone();
+    return new JsonArray(detail);
+}
+
+var holdings = Details("holdings_view");
+var purchase = Details("digital_gold_purchase", new JsonObject
+{
+    ["instructedAmount"] = new JsonObject { ["currency"] = "AUD", ["amount"] = "10.00" },
+    ["debtorAccount"] = new JsonObject { ["bsb"] = "062-000", ["accountNumber"] = "72947086" }
 });
 
-var noCertificatePar = await TryPost(browser, parEndpoint!, ParRequest());
+FormUrlEncodedContent Signed(JsonArray? details, ECDsa? key = null, bool tamper = false) =>
+    new(new Dictionary<string, string> { ["client_id"] = ClientId, ["request"] = RequestObject(details, key ?? signingKey, tamper) });
+
+FormUrlEncodedContent Unsigned() => new(new Dictionary<string, string>
+{
+    ["client_id"] = ClientId, ["response_type"] = "code", ["redirect_uri"] = RedirectUri, ["scope"] = "openid profile partner.products.read",
+    ["state"] = "s", ["code_challenge"] = challenge, ["code_challenge_method"] = "S256", ["authorization_details"] = holdings.ToJsonString()
+});
+
+// ┌─ SEC ────────────────────────────────────────────────────────────────────────────────
+// │ A JAR request object (RFC 9101) as FAPI 2.0 Message Signing describes it: typed
+// │ oauth-authz-req+jwt, ES256 with EWP's request-signing key (its key ID in "kid"), iss = EWP's client ID,
+// │ aud = the Partner's issuer, short-lived (nbf / exp), a unique jti.
+// └──────────────────────────────────────────────────────────────────────────────────────
+string RequestObject(JsonArray? details, ECDsa key, bool tamper)
+{
+    var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+    var payload = new JsonObject
+    {
+        ["iss"] = ClientId, ["aud"] = Authority, ["client_id"] = ClientId, ["jti"] = Guid.NewGuid().ToString(),
+        ["iat"] = now, ["nbf"] = now, ["exp"] = now + 300,
+        ["response_type"] = "code", ["redirect_uri"] = RedirectUri, ["scope"] = "openid profile partner.products.read",
+        ["state"] = Base64Url(RandomNumberGenerator.GetBytes(16)), ["code_challenge"] = challenge, ["code_challenge_method"] = "S256"
+    };
+    if (details is not null) payload["authorization_details"] = details.DeepClone();
+    var header = Base64Url(Encoding.UTF8.GetBytes(new JsonObject { ["alg"] = "ES256", ["typ"] = "oauth-authz-req+jwt", ["kid"] = signingCertificate.Thumbprint }.ToJsonString()));
+    var body = Base64Url(Encoding.UTF8.GetBytes(payload.ToJsonString()));
+    var signature = Base64Url(key.SignData(Encoding.ASCII.GetBytes($"{header}.{body}"), HashAlgorithmName.SHA256));
+    if (tamper)   // the same signature over a CHANGED payload: the amount, raised on the way
+        body = Base64Url(Encoding.UTF8.GetBytes(payload.ToJsonString().Replace("\"10.00\"", "\"9999.00\"")));
+    return $"{header}.{body}.{signature}";
+}
+
+async Task<(HttpResponseMessage? Response, string Body)> Push(HttpClient client, FormUrlEncodedContent content)
+{
+    var response = await TryPost(client, parEndpoint!, content);
+    return (response, response is null ? string.Empty : await response.Content.ReadAsStringAsync());
+}
+
+var (noCertificatePar, _) = await Push(browser, Signed(holdings));
 Check("PAR without EWP's certificate is refused", noCertificatePar is not { StatusCode: HttpStatusCode.Created }, Describe(noCertificatePar));
 
-var par = await TryPost(ewp, parEndpoint!, ParRequest());
-var parBody = par is null ? null : await par.Content.ReadAsStringAsync();
-var requestUri = par is { StatusCode: HttpStatusCode.Created } ? Text(JsonDocument.Parse(parBody!).RootElement, "request_uri") : null;
-Check("PAR with EWP's certificate returns a request_uri", requestUri is not null, requestUri ?? $"{Describe(par)} {parBody}");
+var (unsigned, unsignedBody) = await Push(ewp, Unsigned());
+Check("An UNSIGNED request (plain parameters) is refused", unsigned is not { StatusCode: HttpStatusCode.Created }, $"{Describe(unsigned)} {Error(unsignedBody)}");
+
+var (tampered, tamperedBody) = await Push(ewp, Signed(purchase, tamper: true));
+Check("A signed request ALTERED on the way (amount raised) is refused", tampered is not { StatusCode: HttpStatusCode.Created }, $"{Describe(tampered)} {Error(tamperedBody)}");
+
+using var otherKey = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+var (otherSigner, otherSignerBody) = await Push(ewp, Signed(purchase, otherKey));
+Check("A request signed with ANOTHER key is refused", otherSigner is not { StatusCode: HttpStatusCode.Created }, $"{Describe(otherSigner)} {Error(otherSignerBody)}");
+
+var (noDetails, noDetailsBody) = await Push(ewp, Signed(null));
+Check("A signed request WITHOUT authorization_details is refused", noDetails is not { StatusCode: HttpStatusCode.Created }, $"{Describe(noDetails)} {Error(noDetailsBody)}");
+
+var (unknownType, unknownTypeBody) = await Push(ewp, Signed(Details("home_loan_application")));
+Check("An UNKNOWN authorization_details type is refused", unknownType is not { StatusCode: HttpStatusCode.Created }, $"{Describe(unknownType)} {Error(unknownTypeBody)}");
+
+var zero = Details("digital_gold_purchase", new JsonObject
+{
+    ["instructedAmount"] = new JsonObject { ["currency"] = "AUD", ["amount"] = "0.00" },
+    ["debtorAccount"] = new JsonObject { ["bsb"] = "062-000", ["accountNumber"] = "72947086" }
+});
+var (zeroAmount, zeroAmountBody) = await Push(ewp, Signed(zero));
+Check("A purchase of AUD 0.00 is refused", zeroAmount is not { StatusCode: HttpStatusCode.Created }, $"{Describe(zeroAmount)} {Error(zeroAmountBody)}");
+
+var (signedPurchase, signedPurchaseBody) = await Push(ewp, Signed(purchase));
+Check("A signed Digital Gold purchase (AUD 10.00) is accepted", signedPurchase is { StatusCode: HttpStatusCode.Created }, $"{Describe(signedPurchase)} {Error(signedPurchaseBody)}");
+
+var (par, parBody) = await Push(ewp, Signed(holdings));
+var requestUri = par is { StatusCode: HttpStatusCode.Created } ? Text(JsonDocument.Parse(parBody).RootElement, "request_uri") : null;
+Check("PAR with EWP's certificate and a signed request returns a request_uri", requestUri is not null, requestUri ?? $"{Describe(par)} {parBody}");
 
 // 3. An authorization request that was not pushed first
 var direct = await browser.GetAsync($"{Authority}/connect/authorize?client_id={ClientId}&response_type=code&redirect_uri={Uri.EscapeDataString(RedirectUri)}" +
@@ -161,6 +241,12 @@ static async Task<HttpResponseMessage?> TryPost(HttpClient client, string url, H
 }
 
 static string Describe(HttpResponseMessage? response) => response is null ? "connection refused" : $"HTTP {(int)response.StatusCode}";
+
+static string Error(string body)
+{
+    try { return JsonDocument.Parse(body).RootElement.TryGetProperty("error", out var error) ? $"({error})" : string.Empty; }
+    catch (JsonException) { return string.Empty; }
+}
 
 static string Base64Url(byte[] bytes) => Convert.ToBase64String(bytes).TrimEnd('=').Replace('+', '-').Replace('/', '_');
 

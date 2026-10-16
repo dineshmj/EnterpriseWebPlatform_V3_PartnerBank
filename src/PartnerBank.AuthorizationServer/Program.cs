@@ -1,3 +1,4 @@
+using PartnerBank.AuthorizationServer.Authorization;
 using PartnerBank.AuthorizationServer.Configuration;
 using PartnerBank.Security;
 
@@ -12,6 +13,8 @@ if (!Uri.TryCreate(settings.MtlsBaseUrl, UriKind.Absolute, out var mtlsBaseUri) 
 
 var serverCertificate = settings.Tls.LoadServerCertificate();
 var trustRoot = settings.Tls.LoadTrustRoot();
+var ewpRequestSigning = settings.EwpClient.LoadRequestSigningCertificate();
+builder.Services.AddSingleton(settings);
 
 // ┌─ SEC ────────────────────────────────────────────────────────────────────────────────
 // │ TWO HTTPS ports (Kestrel:Endpoints in appsettings):
@@ -50,6 +53,14 @@ builder.Services
         options.PushedAuthorization.Required = true;
         options.PushedAuthorization.Lifetime = 60;
 
+        // ┌─ SEC ────────────────────────────────────────────────────────────────────────────────
+        // │ Strict JAR (RFC 9101): a request object must be typed oauth-authz-req+jwt, so a
+        // │ signed token of another kind can never be replayed as an authorization request.
+        // │ Discovery advertises the authorization_details types this server understands.
+        // └──────────────────────────────────────────────────────────────────────────────────────
+        options.StrictJarValidation = true;
+        options.Discovery.CustomEntries["authorization_details_types_supported"] = AuthorizationDetails.SupportedTypes.ToArray();
+
         options.UserInteraction.LoginUrl = "/Account/Login";
         options.UserInteraction.ErrorUrl = "/Error";
 
@@ -60,9 +71,17 @@ builder.Services
     .AddInMemoryIdentityResources(Config.IdentityResources)
     .AddInMemoryApiScopes(Config.ApiScopes)
     .AddInMemoryApiResources(Config.ApiResources)
-    .AddInMemoryClients(Config.Clients(settings.EwpClient, settings.ProductsWindowClient).ToList())
+    .AddInMemoryClients(Config.Clients(settings.EwpClient, ewpRequestSigning, settings.ProductsWindowClient).ToList())
     .AddTestUsers(Config.DemoCustomers(settings.DemoCustomers))
-    .AddMutualTlsSecretValidators();
+    .AddMutualTlsSecretValidators()
+    .AddCustomAuthorizeRequestValidator<AuthorizationDetailsRequestValidator>()
+    .AddCustomTokenRequestValidator<AuthorizationDetailsTokenValidator>();
+
+// ┌─ ARCH ───────────────────────────────────────────────────────────────────────────────
+// │ IdentityServer's own code generator, extended (a documented override point) to keep the
+// │ approved authorization detail with the authorization code.
+// └──────────────────────────────────────────────────────────────────────────────────────
+builder.Services.AddTransient<Duende.IdentityServer.ResponseHandling.IAuthorizeResponseGenerator, AuthorizationDetailsResponseGenerator>();
 
 builder.Services.AddRazorPages();
 

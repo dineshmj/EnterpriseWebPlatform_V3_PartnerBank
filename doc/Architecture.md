@@ -9,7 +9,8 @@ The Partner Bank is a **second organisation** in the EWP V3 proof of concept. EW
 | Repository | `EnterpriseWebPlatform_V3` | `EnterpriseWebPlatform_V3_PartnerBank` |
 | Machine | the laptop | the home PC (192.168.1.12) |
 | Proves who it is with | its client certificate (`CN=EWP BSS Partner Products Client, O=Four Walls Inc.`) | its TLS server certificate (`partner-auth`, `partner-products`, `partner-api` `.ewp.home.arpa`) |
-| Holds the private key of | its client certificate (and, in this PoC, the trust root) | its server certificate |
+| Holds the private key of | its client certificate, its request-signing key (and, in this PoC, the trust root) | its server certificate |
+| Signs its requests with | `CN=EWP BSS Request Signing, O=Four Walls Inc.` (ECDSA P-256, ES256) - registered at the Partner Bank as a JWK | - |
 
 Both trust **one root** (`EWP Local Trust Root (DEVELOPMENT ONLY)`), created by EWP's `ps\pki\New-EwpLocalPki.ps1`. It plays the part of a neutral trust body - in production a commercial CA or a scheme registry (for example Australia's Consumer Data Right register). Each side trusts that root **only through its own configuration**, never through the operating system's store, so a certificate from any other authority is refused even when Windows would accept it.
 
@@ -42,7 +43,7 @@ Both trust **one root** (`EWP Local Trust Root (DEVELOPMENT ONLY)`), created by 
 | D1 | **A separate repository and a separate machine** for the Partner Bank | it is another organisation: nothing may be shared but standards and the trust root; mutual TLS then crosses a real network |
 | D2 | **Two ports per deployable that serves both people and EWP's server** - a public port that never asks for a client certificate, and a mutual-TLS port that requires one | no certificate picker for customers; without EWP's certificate there is not even a TLS connection to the server-to-server endpoints |
 | D3 | **FAPI 2.0, the open-banking way**: EWP authenticates with mutual TLS, pushes every authorization request (PAR), uses PKCE, receives certificate-bound tokens; the **customer authenticates and consents at the Partner Bank** | this is how FAPI-based open banking works worldwide (UK, Brazil, Australia CDR): the person authenticates with the organisation that holds the relationship. Federation with EWP's identity provider (enterprise single sign-on) and pure reliance on EWP's word are outside FAPI's model |
-| D4 | **Message signing (next step)**: EWP signs its pushed requests (JAR, RFC 9101) and states exactly what is authorised in `authorization_details` (RAR, RFC 9396) - `digital_gold_purchase`, `product_application`, `holdings_view` | the Partner Bank keeps signed evidence of what EWP asked for; the amount of a purchase cannot change on the way |
+| D4 | **Message signing** (done, 2026-10-16): EWP signs every pushed request (JAR, RFC 9101) with a separate ES256 key, registered at the Partner Bank as a JWK with its key ID, and states exactly what is authorised in `authorization_details` (RAR, RFC 9396) - `digital_gold_purchase`, `product_application`, `holdings_view`; the approved detail is carried into the access token | the Partner Bank keeps signed evidence of what EWP asked for; the amount of a purchase cannot change on the way; the API sees exactly what a token allows, not only a broad scope |
 | D5 | **EWP's staff member is recorded, never authenticated, by the Partner Bank** | EWP has authenticated Sophie (its IDP, MFA); she appears as the acting person in EWP's signed request, for the Partner's audit - like the `act` claim of EWP's own token exchange |
 | D6 | **The Partner's data in one domain microservice** (`PartnerBank.Api`), the window a pure front end | the same layering as EWP; the window can never read or change data the API does not allow for that customer |
 | D7 | **Payment advice (remittance advice)**: after EWP's payment completes, EWP's server tells the Partner API the payment's network reference over mutual TLS | a real bank would see the money on its own statement; the advice is the common, real pattern that keeps the two organisations' systems separate |
@@ -53,7 +54,7 @@ Both trust **one root** (`EWP Local Trust Root (DEVELOPMENT ONLY)`), created by 
 
 **Today** (verified end to end by `tools\JourneyCheck`):
 
-1. EWP's server pushes an authorization request over mutual TLS; the customer signs in at the Partner Bank; EWP exchanges the code for the customer's token, bound to EWP's certificate.
+1. EWP's server pushes a signed authorization request (JAR, with `authorization_details`) over mutual TLS; the customer signs in at the Partner Bank; EWP exchanges the code for the customer's token, bound to EWP's certificate and carrying the approved `authorization_details`.
 2. EWP asks the external API for a one-time window link for that customer.
 3. The customer opens the window (single sign-on), chooses a product and applies; the window does this through the internal API.
 4. EWP reads the application's status through the external API.

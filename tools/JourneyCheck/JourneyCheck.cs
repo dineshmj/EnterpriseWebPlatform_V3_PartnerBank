@@ -39,6 +39,7 @@ X509Certificate2 Pfx(string name) => X509CertificateLoader.LoadPkcs12FromFile(
 var trustRoot = X509CertificateLoader.LoadCertificateFromFile(Path.Combine(pki, "ewp-trust-root.cer"));
 var ewpCertificate = Pfx("ewp-partner-client");
 var otherCertificate = Pfx("partner-bank-server");   // a real certificate from the same root - but not the one EWP's token is bound to
+var signingCertificate = Pfx("ewp-request-signing");  // EWP's request-signing key (JAR)
 
 var failures = 0;
 void Check(string name, bool passed, string detail = "")
@@ -101,6 +102,12 @@ static string Hidden(string html, string name) =>
 
 static string Base64Url(byte[] bytes) => Convert.ToBase64String(bytes).TrimEnd('=').Replace('+', '-').Replace('/', '_');
 
+static byte[] Base64UrlDecode(string text)
+{
+    var padded = text.Replace('-', '+').Replace('_', '/');
+    return Convert.FromBase64String(padded.PadRight(padded.Length + (4 - padded.Length % 4) % 4, '='));
+}
+
 static string? Text(string json, string name) =>
     JsonDocument.Parse(json).RootElement.TryGetProperty(name, out var value) ? value.ToString() : null;
 
@@ -114,18 +121,42 @@ var parEndpoint = mtls.GetProperty("pushed_authorization_request_endpoint").GetS
 var tokenEndpoint = mtls.GetProperty("token_endpoint").GetString()!;
 
 var verifier = Base64Url(RandomNumberGenerator.GetBytes(32));
+
+// ┌─ SEC ────────────────────────────────────────────────────────────────────────────────
+// │ What EWP asks the customer to authorise, in a request object SIGNED with EWP's key
+// │ (JAR, ES256, its key ID in "kid"): an application for the 12-month term deposit, for
+// │ the EWP-verified customer, offered by the acting staff member.
+// └──────────────────────────────────────────────────────────────────────────────────────
+var authorizationDetails = new JsonArray(new JsonObject
+{
+    ["type"] = "product_application",
+    ["productCode"] = "PB-TD-12",
+    ["customer"] = new JsonObject { ["ewpCustomerNumber"] = "CUST-100009", ["name"] = "Camilla Parker", ["dateOfBirth"] = "1988-07-14", ["kycVerified"] = true },
+    ["actor"] = new JsonObject { ["lanId"] = "somit", ["branch"] = "SYD001" }
+});
+var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+var requestObject = new JsonObject
+{
+    ["iss"] = ClientId, ["aud"] = Authority, ["client_id"] = ClientId, ["jti"] = Guid.NewGuid().ToString(),
+    ["iat"] = now, ["nbf"] = now, ["exp"] = now + 300,
+    ["response_type"] = "code", ["redirect_uri"] = RedirectUri,
+    ["scope"] = "openid profile partner.products.read partner.applications.write",
+    ["state"] = Base64Url(RandomNumberGenerator.GetBytes(16)),
+    ["code_challenge"] = Base64Url(SHA256.HashData(Encoding.ASCII.GetBytes(verifier))), ["code_challenge_method"] = "S256",
+    ["authorization_details"] = authorizationDetails.DeepClone()
+};
+var jwtHeader = Base64Url(Encoding.UTF8.GetBytes(new JsonObject { ["alg"] = "ES256", ["typ"] = "oauth-authz-req+jwt", ["kid"] = signingCertificate.Thumbprint }.ToJsonString()));
+var jwtBody = Base64Url(Encoding.UTF8.GetBytes(requestObject.ToJsonString()));
+var jwtSignature = Base64Url(signingCertificate.GetECDsaPrivateKey()!.SignData(Encoding.ASCII.GetBytes($"{jwtHeader}.{jwtBody}"), HashAlgorithmName.SHA256));
+
 var par = await ewp.PostAsync(parEndpoint, new FormUrlEncodedContent(new Dictionary<string, string>
 {
     ["client_id"] = ClientId,
-    ["response_type"] = "code",
-    ["redirect_uri"] = RedirectUri,
-    ["scope"] = "openid profile partner.products.read partner.applications.write",
-    ["state"] = Base64Url(RandomNumberGenerator.GetBytes(16)),
-    ["code_challenge"] = Base64Url(SHA256.HashData(Encoding.ASCII.GetBytes(verifier))),
-    ["code_challenge_method"] = "S256"
+    ["request"] = $"{jwtHeader}.{jwtBody}.{jwtSignature}"
 }));
-var requestUri = Text(await par.Content.ReadAsStringAsync(), "request_uri");
-Check("EWP pushes the request over mutual TLS", par.StatusCode == HttpStatusCode.Created && requestUri is not null);
+var parBody = await par.Content.ReadAsStringAsync();
+var requestUri = Text(parBody, "request_uri");
+Check("EWP pushes a SIGNED request (product_application) over mutual TLS", par.StatusCode == HttpStatusCode.Created && requestUri is not null, requestUri is null ? parBody : "");
 
 var authorizeUrl = $"{Authority}/connect/authorize?client_id={ClientId}&request_uri={Uri.EscapeDataString(requestUri!)}";
 var (loginPage, loginUrl) = await Navigate(await browser.GetAsync(authorizeUrl), authorizeUrl);
@@ -153,6 +184,11 @@ var tokenResponse = await ewp.PostAsync(tokenEndpoint, new FormUrlEncodedContent
 }));
 var customerToken = Text(await tokenResponse.Content.ReadAsStringAsync(), "access_token");
 Check("EWP exchanges the code over mutual TLS for the customer's token", customerToken is not null, $"HTTP {(int)tokenResponse.StatusCode}");
+
+var tokenPayload = JsonNode.Parse(Encoding.UTF8.GetString(Base64UrlDecode(customerToken!.Split('.')[1])))!;
+var grantedDetails = tokenPayload["authorization_details"];
+Check("The token states exactly what the customer authorised (authorization_details)",
+    grantedDetails is not null && JsonNode.DeepEquals(grantedDetails, authorizationDetails), grantedDetails?.ToJsonString() ?? "missing");
 
 Console.WriteLine();
 Console.WriteLine("2. The Partner API: only EWP's certificate, only a token bound to it");

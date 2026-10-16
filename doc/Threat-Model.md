@@ -6,6 +6,7 @@ Scope: the Partner Bank's three deployables and their two boundaries - EWP's ser
 
 | Asset | Why it matters |
 |---|---|
+| EWP's request-signing key (EWP's asset; its public part registered here) | anyone holding it could sign authorization requests as EWP |
 | Customers' Partner Bank sessions and tokens | a stolen session or token acts as the customer |
 | EWP's access to the Partner API | an impostor "EWP" could create window links, read applications - and, next, order gold |
 | Window links | a link opens the Partner's window for one customer |
@@ -36,6 +37,9 @@ Scope: the Partner Bank's three deployables and their two boundaries - EWP's ser
 | T10 | A fake authorization server (DNS or network tricks on the PC) | the API and the window trust the authorization server only through the PoC's root and the host name | 19 |
 | T11 | Username enumeration at sign-in | one message for an unknown user and a wrong password | 10 |
 | T12 | The mTLS ports expose pages meant for people | the mTLS ports serve only their server-to-server paths; everything else answers 404 | 6a, 13 |
+| T13 | EWP's request is changed on the way, or EWP later denies what it asked for (e.g. the amount) | every request is a signed request object (JAR); the signature, issuer, audience, lifetime and type are checked; the Partner Bank holds signed evidence | 12a |
+| T14 | A request authorises more, or something else, than intended | exactly one `authorization_details` of a known type, inside the signed request, strictly validated; the approved detail travels into the token through the stored code | 12b, 12c |
+| T15 | A stolen mutual-TLS key is used to sign requests (or the reverse) | two separate keys: the TLS key authenticates connections, the ES256 key signs requests; neither can do the other's job | 12a |
 
 ## 4. Residual risks (accepted for the PoC)
 
@@ -47,4 +51,5 @@ Scope: the Partner Bank's three deployables and their two boundaries - EWP's ser
 | R4 | The trust root's private key lives on the laptop with EWP's own keys | a real CA run by a third party |
 | R5 | Demo customers with known passwords | real customer accounts with MFA |
 | R6 | Windows 10 on the home PC no longer receives security updates | supported operating systems; the PoC's ports are open to the home network (Private profile) only |
-| R7 | EWP's pushed requests are not yet signed: the Partner has no signed evidence of what EWP asked for | message signing (JAR + `authorization_details`) - the next step (decision D4) |
+| R7 | ~~EWP's pushed requests are not signed~~ - **closed 2026-10-16** by message signing (decision D4, controls 12a-12c) | - |
+| R8 | EWP's request-signing key is in a file on the laptop | an HSM or a key-management service; signing done by the service, the key never exported |
