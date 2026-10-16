@@ -1,0 +1,31 @@
+@page
+@model PartnerBank.AuthorizationServer.Pages.Account.VerifyModel
+@{
+    ViewData["Title"] = "Confirm it's you";
+}
+<section class="card">
+    @if (Model.Problem is not null)
+    {
+        <h1>Confirm it's you</h1>
+        <p class="error" role="alert">@Model.Problem</p>
+    }
+    else
+    {
+        <h1>Confirm it's you, @Model.Name</h1>
+        <p class="lead">We sent a 6-digit code to your phone. It is valid for 5 minutes.</p>
+        @if (Model.DemoCode is not null)
+        {
+            <p class="demo" role="note">Demo (Development only, in place of an SMS): your code is <strong>@Model.DemoCode</strong></p>
+        }
+        @if (Model.ErrorMessage is not null)
+        {
+            <p class="error" role="alert">@Model.ErrorMessage</p>
+        }
+        <form method="post">
+            <input type="hidden" asp-for="Id" />
+            <label asp-for="Code">Code</label>
+            <input asp-for="Code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" autofocus />
+            <button type="submit">Confirm</button>
+        </form>
+    }
+</section>

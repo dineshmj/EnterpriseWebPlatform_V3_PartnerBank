@@ -111,8 +111,8 @@ var purchase = Details("digital_gold_purchase", new JsonObject
     ["debtorAccount"] = new JsonObject { ["bsb"] = "062-000", ["accountNumber"] = "72947086" }
 });
 
-FormUrlEncodedContent Signed(JsonArray? details, ECDsa? key = null, bool tamper = false) =>
-    new(new Dictionary<string, string> { ["client_id"] = ClientId, ["request"] = RequestObject(details, key ?? signingKey, tamper) });
+FormUrlEncodedContent Signed(JsonArray? details, ECDsa? key = null, bool tamper = false, bool freshSignIn = true) =>
+    new(new Dictionary<string, string> { ["client_id"] = ClientId, ["request"] = RequestObject(details, key ?? signingKey, tamper, freshSignIn) });
 
 FormUrlEncodedContent Unsigned() => new(new Dictionary<string, string>
 {
@@ -125,7 +125,7 @@ FormUrlEncodedContent Unsigned() => new(new Dictionary<string, string>
 // │ oauth-authz-req+jwt, ES256 with EWP's request-signing key (its key ID in "kid"), iss = EWP's client ID,
 // │ aud = the Partner's issuer, short-lived (nbf / exp), a unique jti.
 // └──────────────────────────────────────────────────────────────────────────────────────
-string RequestObject(JsonArray? details, ECDsa key, bool tamper)
+string RequestObject(JsonArray? details, ECDsa key, bool tamper, bool freshSignIn)
 {
     var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
     var payload = new JsonObject
@@ -136,6 +136,7 @@ string RequestObject(JsonArray? details, ECDsa key, bool tamper)
         ["state"] = Base64Url(RandomNumberGenerator.GetBytes(16)), ["code_challenge"] = challenge, ["code_challenge_method"] = "S256"
     };
     if (details is not null) payload["authorization_details"] = details.DeepClone();
+    if (freshSignIn) payload["prompt"] = "login";
     var header = Base64Url(Encoding.UTF8.GetBytes(new JsonObject { ["alg"] = "ES256", ["typ"] = "oauth-authz-req+jwt", ["kid"] = signingCertificate.Thumbprint }.ToJsonString()));
     var body = Base64Url(Encoding.UTF8.GetBytes(payload.ToJsonString()));
     var signature = Base64Url(key.SignData(Encoding.ASCII.GetBytes($"{header}.{body}"), HashAlgorithmName.SHA256));
@@ -165,6 +166,9 @@ Check("A request signed with ANOTHER key is refused", otherSigner is not { Statu
 
 var (noDetails, noDetailsBody) = await Push(ewp, Signed(null));
 Check("A signed request WITHOUT authorization_details is refused", noDetails is not { StatusCode: HttpStatusCode.Created }, $"{Describe(noDetails)} {Error(noDetailsBody)}");
+
+var (noFreshSignIn, noFreshSignInBody) = await Push(ewp, Signed(holdings, freshSignIn: false));
+Check("A signed request WITHOUT prompt=login (no fresh sign-in) is refused", noFreshSignIn is not { StatusCode: HttpStatusCode.Created }, $"{Describe(noFreshSignIn)} {Error(noFreshSignInBody)}");
 
 var (unknownType, unknownTypeBody) = await Push(ewp, Signed(Details("home_loan_application")));
 Check("An UNKNOWN authorization_details type is refused", unknownType is not { StatusCode: HttpStatusCode.Created }, $"{Describe(unknownType)} {Error(unknownTypeBody)}");

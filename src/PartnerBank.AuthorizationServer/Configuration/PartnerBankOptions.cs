@@ -29,6 +29,12 @@ public sealed class PartnerBankOptions
     /// <summary>The address the Partner's own host names resolve to (127.0.0.1: the API runs on the same machine).</summary>
     public string? ResolvePartnerHostsTo { get; init; }
 
+    /// <summary>Development only: show the registration's one-time code on the page (in place of an SMS).</summary>
+    public bool ShowOneTimeCodeOnPage { get; init; }
+
+    /// <summary>A Partner Bank session ends after this many idle minutes.</summary>
+    public int SessionIdleMinutes { get; init; } = 10;
+
     /// <summary>Product names for the consent page (the catalogue itself belongs to the Partner Bank API).</summary>
     public Dictionary<string, string> ProductNames { get; init; } = [];
 }

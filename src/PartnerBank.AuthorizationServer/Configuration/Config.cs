@@ -4,7 +4,6 @@ using System.Security.Cryptography.X509Certificates;
 using Duende.IdentityModel;
 using Duende.IdentityServer;
 using Duende.IdentityServer.Models;
-using Duende.IdentityServer.Test;
 
 namespace PartnerBank.AuthorizationServer.Configuration;
 
@@ -146,13 +145,4 @@ public static class Config
             AccessTokenType = AccessTokenType.Jwt
         };
     }
-
-    public static List<TestUser> DemoCustomers(IEnumerable<DemoCustomerOptions> customers) =>
-        customers.Select(c => new TestUser
-        {
-            SubjectId = c.SubjectId,
-            Username = c.Username,
-            Password = c.Password,
-            Claims = { new Claim(JwtClaimTypes.Name, c.Name) }
-        }).ToList();
 }

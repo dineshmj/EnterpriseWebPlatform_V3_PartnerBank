@@ -11,6 +11,13 @@
         <span class="brand-mark" aria-hidden="true">PB</span>
         <span class="brand-name">Partner Bank</span>
         <a class="brand-link" href="~/My">My Partner Bank</a>
+        @if (User.Identity?.IsAuthenticated == true)
+        {
+            <form method="post" asp-page="/SignOut" class="sign-out">
+                <span>@User.Identity.Name</span>
+                <button type="submit">Sign out</button>
+            </form>
+        }
         <span class="brand-note">Proof of concept - not a real bank</span>
     </header>
     <main class="page">

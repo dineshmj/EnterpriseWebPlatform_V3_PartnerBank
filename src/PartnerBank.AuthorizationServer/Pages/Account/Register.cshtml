@@ -1,0 +1,42 @@
+@page
+@model PartnerBank.AuthorizationServer.Pages.Account.RegisterModel
+@{
+    ViewData["Title"] = "Register";
+}
+<section class="card">
+    @if (Model.Problem is not null)
+    {
+        <h1>Registration</h1>
+        <p class="error" role="alert">@Model.Problem</p>
+    }
+    else
+    {
+        <h1>Register with Partner Bank</h1>
+        <p class="lead">@Model.Customer!.ReferrerName has verified who you are. These details come from them:</p>
+        <dl class="facts">
+            <dt>Name</dt>
+            <dd>@Model.Customer.Name</dd>
+            <dt>Date of birth</dt>
+            <dd>@PartnerBank.AuthorizationServer.Pages.Account.RegisterModel.BornOn(Model.Customer.DateOfBirth)</dd>
+            <dt>Customer number</dt>
+            <dd>@Model.Customer.CustomerNumber at @Model.Customer.ReferrerName</dd>
+        </dl>
+        <p class="muted">If anything here is wrong, do not continue - tell @Model.Customer.ReferrerName.</p>
+
+        @if (Model.ErrorMessage is not null)
+        {
+            <p class="error" role="alert">@Model.ErrorMessage</p>
+        }
+        <form method="post">
+            <input type="hidden" asp-for="Input.ReturnUrl" />
+            <label asp-for="Input.Username">Choose a username</label>
+            <input asp-for="Input.Username" autocomplete="username" autofocus />
+            <label asp-for="Input.Password">Choose a password (at least 12 characters)</label>
+            <input asp-for="Input.Password" type="password" autocomplete="new-password" />
+            <label asp-for="Input.Confirm">The password again</label>
+            <input asp-for="Input.Confirm" type="password" autocomplete="new-password" />
+            <button type="submit">Continue</button>
+        </form>
+        <p class="muted">Next, we send a one-time code to your phone to confirm it is you.</p>
+    }
+</section>

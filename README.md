@@ -7,7 +7,8 @@ The journey follows the FAPI 2.0 pattern - mutual TLS and a pushed authorization
 ```
 1. EWP's server ──mTLS (EWP's client certificate)──► authorization server: PAR with a SIGNED request object (JAR)
    stating exactly what is authorised (authorization_details) ──► request_uri (60 s, once)
-   Customer's browser ──request_uri──► Partner Bank sign-in ──► CONSENT (exactly what EWP asks) ──► back to EWP
+   Customer's browser ──request_uri──► Partner Bank sign-in, ALWAYS fresh (prompt=login) - or, the first time,
+   registration with the details EWP verified + a one-time code ──► CONSENT (exactly what EWP asks) ──► back to EWP
    with a one-time code (or access_denied, without one, if the customer declines)
    EWP's server ──mTLS──► token: an access token for THIS customer, BOUND to EWP's certificate,
    carrying the authorization_details the customer authorised
@@ -111,13 +112,13 @@ And on the laptop, in `C:\Windows\System32\drivers\etc\hosts` (administrator) - 
 Both tools are single-file .NET 10 apps acting from EWP's side (EWP's client certificate and request-signing key, trusting only the PoC's root); they connect to the given address directly, so they need no hosts-file entry. The handshake check also proves the refusals: an unsigned request, one altered on the way, one signed with another key, and missing, unknown or invalid `authorization_details`.
 
 ```powershell
-dotnet run tools\HandshakeCheck\HandshakeCheck.cs -- 192.168.1.12   # the authorization server: 21 checks
-dotnet run tools\JourneyCheck\JourneyCheck.cs -- 192.168.1.12       # the whole journey, as EWP AND as the customer's browser: 32 checks
+dotnet run tools\HandshakeCheck\HandshakeCheck.cs -- 192.168.1.12   # the authorization server: 22 checks
+dotnet run tools\JourneyCheck\JourneyCheck.cs -- 192.168.1.12       # the whole journey, as EWP AND as the customer's browser: 43 checks
 ```
 
 Leave out the address for the Partner Bank on the same machine. The handshake check prints a link for a browser test; the browser needs `ewp-trust-root.cer` in "Trusted Root Certification Authorities" to open it without a warning.
 
-Demo customers (Development only): `alex.partner` and `sam.partner` - see the authorization server's `appsettings.Development.json`. Delete `src\PartnerBank.Api\partner-bank.db` (with the API stopped) to start the Partner Bank's data again - and after an update that adds tables: the API refuses to start with an older database and says so. To look inside: `sqlite3 src\PartnerBank.Api\partner-bank.db "select Number, Status, AmountAud, Grams from GoldOrders;"`.
+Customer accounts live in the authorization server's own database, `src\PartnerBank.AuthorizationServer\partner-identity.db` (passwords hashed). The demo customers `alex.partner` and `sam.partner` (Development, see `appsettings.Development.json`) are created there at start-up; customers EWP sends register themselves. In Development the registration's one-time code is shown on the page (and in the authorization server's console) in place of an SMS. Delete `src\PartnerBank.Api\partner-bank.db` (with the API stopped) to start the Partner Bank's data again - and after an update that adds tables: the API refuses to start with an older database and says so. To look inside: `sqlite3 src\PartnerBank.Api\partner-bank.db "select Number, Status, AmountAud, Grams from GoldOrders;"`.
 
 ## Security controls
 
@@ -136,6 +137,9 @@ Demo customers (Development only): `alex.partner` and `sam.partner` - see the au
 | 8 | **Fail closed at start-up**: no server certificate, password or trust root - no server | `PartnerBank.Security/TlsOptions.cs` |
 | 9 | **Browser security headers**: CSP without inline code, never framed, no MIME sniffing, no referrer | `PartnerBank.Security/SecurityHeaders.cs` |
 | 10 | **No open redirect** after sign-in; one message for an unknown user and a wrong password | `Pages/Account/Login.cshtml.cs` |
+| 10a | **Customer accounts of the Partner Bank's own**: passwords hashed (ASP.NET Core Identity's PasswordHasher, PBKDF2); 5 wrong passwords lock the account for 15 minutes; an unknown username costs the same work as a known one | `Customers/CustomerStore.cs` |
+| 10b | **Registration only for a customer the referring organisation verified**, from its SIGNED request (the identity is shown read-only, never typed); once per referred customer (unique link); passwords of 12+ characters; the account exists only after a one-time code (6 digits, 5 minutes, 5 tries, stored as a salted hash); signed in with `amr` pwd + otp | `Pages/Account/Register.cshtml.cs`, `Verify.cshtml.cs`, `Customers/` |
+| 10c | **A fresh sign-in for every request from EWP** (`prompt=login` must be inside the signed request - a bank's desk, a browser that is not the customer's); a 10-minute idle session; sign-out ends the session (with an `id_token_hint`, or after asking) | `Authorization/AuthorizationDetailsRequestValidator.cs`, `Program.cs`, `Pages/Account/Logout.cshtml.cs` |
 | 11 | **Error details only in Development** | `Pages/Error.cshtml.cs` |
 | 12 | **The products window is a confidential client** with a hashed secret, code + PKCE and PAR - like every client | `Config.cs` |
 | 12a | **Signed requests (JAR, RFC 9101 - FAPI 2.0 Message Signing)**: every authorization request from EWP is a request object signed with EWP's request-signing key (ES256, registered as a JWK with its key ID; a separate key from the mutual-TLS one), typed `oauth-authz-req+jwt` (strict), with issuer, audience and lifetime checked; an unsigned, altered or wrongly signed request is refused | `Config.cs` (`RequireRequestObject`), `Program.cs` (`StrictJarValidation`), `Authorization/RequestSigningKey.cs` |
@@ -165,6 +169,7 @@ Demo customers (Development only): `alex.partner` and `sam.partner` - see the au
 | 20 | **No data, no decisions**: the window calls the internal API with the customer's own access token, kept in its server-side session cookie - never in the browser | `Services/PartnerApi.cs` |
 | 21 | **Single sign-on as a confidential client** (secret, code + PKCE, PAR) asking for the customer scope | `Program.cs` |
 | 21a | **"My Partner Bank" shows only the signed-in customer's own** grams, applications and activity: the internal API takes the customer from the token, never from the request; times shown in Sydney time | `Pages/My.cshtml.cs`, `PartnerBank.Api/Api/InternalApi.cs` |
-| 22 | **The session cookie** is `__Host-`, HttpOnly, Secure, SameSite=Lax, 20 minutes sliding; anti-forgery tokens on every form; one message for every link failure | `Program.cs`, `Pages/` |
+| 21b | **No silent reuse of an old sign-in, and a real sign-out**: the window accepts a Partner Bank sign-in only if it is at most 2 minutes old (`max_age`), so right after a consent there is no second password but later - perhaps another person at the desk - there is; "Sign out" (POST, anti-forgery) ends the window's session AND the Partner Bank's | `Program.cs`, `Pages/SignOut.cshtml.cs` |
+| 22 | **The session cookie** is `__Host-`, HttpOnly, Secure, SameSite=Lax, 10 minutes sliding; anti-forgery tokens on every form; one message for every link failure | `Program.cs`, `Pages/` |
 
-**Not done in this PoC** (a production partner would): certificate revocation checks (the PoC's root publishes no revocation list), sign-in throttling and lockout, real customer accounts (demo users only), persistent grant and key stores (in memory / local files), a real credit decision, a Duende licence, and consent screens.
+**Not done in this PoC** (a production partner would): certificate revocation checks (the PoC's root publishes no revocation list), address-based sign-in throttling, a real SMS / push provider for one-time codes, persistent grant and key stores (in memory / local files), a real credit decision, a Duende licence, and consent screens.

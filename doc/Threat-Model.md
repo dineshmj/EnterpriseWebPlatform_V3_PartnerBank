@@ -45,16 +45,19 @@ Scope: the Partner Bank's three deployables and their two boundaries - EWP's ser
 | T18 | A payment advice for the wrong amount, a replayed advice, or a cancel after allocation | exact amount only; idempotent by network reference; allocated gold cannot be cancelled; only the referring organisation's own orders | 18b |
 | T19 | Holdings read without the customer's agreement | only with a consented `holdings_view` token, only the customer's own | 18c |
 | T20 | One customer sees another's gold or activity in the Partner's window | the internal API reads the customer from the window's token (`sub`), never from the request | 16, 21a |
+| T21 | At a bank's desk, the next person uses the previous customer's Partner Bank session | every EWP request requires a fresh sign-in (`prompt=login`, inside the signed request, enforced); the window accepts only a sign-in of the last 2 minutes; "Sign out" ends both sessions; 10-minute idle sessions | 10c, 21b |
+| T22 | Someone registers as another person, registers twice, or guesses the one-time code | registration only from a signed request for a verified customer, identity read-only; once per referred customer; the code is 6 digits, 5 minutes, 5 tries, stored as a salted hash | 10b |
+| T23 | Password guessing at the Partner Bank's sign-in | hashed passwords; account lockout after 5 wrong passwords (15 minutes) | 10a |
 
 ## 4. Residual risks (accepted for the PoC)
 
 | # | Risk | Production answer |
 |---|---|---|
 | R1 | No certificate revocation: a stolen EWP key stays valid until the certificate expires (one year) | a CA with revocation (OCSP / CRL) and shorter certificate lifetimes |
-| R2 | No sign-in throttling or lockout at the Partner's sign-in | per-account lockout and per-address throttling (as EWP's IDP does) |
+| R2 | Per-account lockout is in place (10a); there is no per-address throttling | per-address throttling (as EWP's IDP does) |
 | R3 | Grants and keys in memory or local files; the window's client secret in development configuration | persistent stores, keys in a secret store or HSM, `private_key_jwt` for the window too |
 | R4 | The trust root's private key lives on the laptop with EWP's own keys | a real CA run by a third party |
-| R5 | Demo customers with known passwords | real customer accounts with MFA |
+| R5 | Demo customers with known passwords (Development seed); one-time codes shown on the page in Development instead of an SMS | no seeded accounts outside Development; an SMS / push provider; MFA at every sign-in |
 | R6 | Windows 10 on the home PC no longer receives security updates | supported operating systems; the PoC's ports are open to the home network (Private profile) only |
 | R7 | ~~EWP's pushed requests are not signed~~ - **closed 2026-10-16** by message signing (decision D4, controls 12a-12c) | - |
 | R8 | EWP's request-signing key is in a file on the laptop | an HSM or a key-management service; signing done by the service, the key never exported |

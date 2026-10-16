@@ -31,7 +31,7 @@ Both trust **one root** (`EWP Local Trust Root (DEVELOPMENT ONLY)`), created by 
 
 | Deployable | Responsibility | Data |
 |---|---|---|
-| `PartnerBank.AuthorizationServer` | Duende IdentityServer 8: client authentication (mutual TLS for EWP, a secret for the Partner's own window), PAR, sign-in, tokens bound to certificates | in memory (PoC) |
+| `PartnerBank.AuthorizationServer` | Duende IdentityServer 8: client authentication (mutual TLS for EWP, a secret for the Partner's own window), PAR, signed requests, sign-in and registration, consent, tokens bound to certificates | **customer accounts in SQLite (`partner-identity.db`)**; grants and keys in memory / local files (PoC) |
 | `PartnerBank.Api` | the domain microservice: products, window links, applications, **Digital Gold** (price, orders, payment advice, allocation, holdings) and the customers' activity ledger | **SQLite, owned by this deployable alone** |
 | `PartnerBank.Web` | the customer's window: pages only; every read and change goes through the internal API with the customer's own token | none |
 | `PartnerBank.Security` | shared library: TLS defaults, client-certificate check, trusted back-channel, security headers, port guards | - |
@@ -51,6 +51,8 @@ Both trust **one root** (`EWP Local Trust Root (DEVELOPMENT ONLY)`), created by 
 | D9 | **Catalogue**: Term Deposit and Bonus Saver (simple applications) and Digital Gold (the full flow); the home loan was removed | lending is a bounded context of its own and deserves proper treatment later |
 | D10 | **Consent for every request, never remembered** (2026-10-16) | open banking's rule: the customer approves at the organisation that holds the relationship, each specific request on its own - approving one purchase is not approving the next |
 | D11 | **Approve the amount, lock the grams at the order** (2026-10-16): the consent page shows an indicative quote; the order placed right after the approval locks the grams for 5 minutes; a payment after the lock is allocated at the price of the moment | how digital-gold products work: the customer commits to the money, the metal follows the market; never more gold than was paid for |
+| D12 | **The Partner Bank's own customer accounts; EWP's verified data only pre-fills** (2026-10-16): a first-time customer registers with the details EWP verified, shown read-only, and proves possession of their phone with a one-time code; EWP's word never signs anyone in | FAPI / open banking: the customer authenticates at the organisation that holds the relationship; reliance on EWP's KYC removes retyping, not authentication |
+| D13 | **A bank's desk is a shared device** (2026-10-16): fresh sign-in for every EWP request (`prompt=login`, enforced), `max_age` 2 minutes for the window, sign-out of both sessions, 10-minute idle sessions | single sign-on is right on a customer's own phone and wrong at Sophie's desk: the next customer must never see the previous one's gold |
 
 ## 4. The journey
 
@@ -70,7 +72,11 @@ Both trust **one root** (`EWP Local Trust Root (DEVELOPMENT ONLY)`), created by 
 
 **The customer's own window**: "My Partner Bank" (`/My` on the window) shows the signed-in customer's grams, their value today, their applications and their activity, read through the internal API with the customer's own token - EWP is not involved.
 
-**Next**: a first-time customer's registration (pre-filled from EWP's verified data, with a one-time code); then EWP's side - "Partner Products → Digital Gold", its Temporal workflow and the payment through EWP's Payments saga.
+**A first-time customer** (a customer EWP sends who has no Partner Bank account): the sign-in page offers registration with the details EWP verified (read-only); the customer chooses a username and password and confirms with a one-time code; the account is linked to EWP's customer number (once); next time the sign-in page says "Welcome back". Verified by `tools\JourneyCheck`, section 7.
+
+**A shared desk**: every EWP request asks for a fresh sign-in (`prompt=login`, inside the signed request); the window accepts only a sign-in of the last 2 minutes (`max_age`); "Sign out" ends the window's and the Partner Bank's sessions; sessions end after 10 idle minutes. Verified by `tools\JourneyCheck`, section 6.
+
+**Next**: (pre-filled from EWP's verified data, with a one-time code); then EWP's side - "Partner Products → Digital Gold", its Temporal workflow and the payment through EWP's Payments saga.
 
 ## 5. Ports
 

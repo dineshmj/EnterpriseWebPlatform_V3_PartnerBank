@@ -1,5 +1,9 @@
 using PartnerBank.AuthorizationServer.Authorization;
+using Microsoft.AspNetCore.Identity;
+using Microsoft.EntityFrameworkCore;
+
 using PartnerBank.AuthorizationServer.Configuration;
+using PartnerBank.AuthorizationServer.Customers;
 using PartnerBank.Security;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -26,6 +30,18 @@ builder.Services.AddSingleton(settings);
 // └──────────────────────────────────────────────────────────────────────────────────────
 builder.WebHost.ConfigureKestrel(kestrel => kestrel.UsePartnerTls(serverCertificate));
 builder.Services.AddAuthentication().AddPartnerClientCertificates(trustRoot);
+
+// ┌─ ARCH ───────────────────────────────────────────────────────────────────────────────
+// │ The Partner Bank's customer accounts (sign-in, registration) in their own SQLite
+// │ database, apart from the API's business data. Passwords: ASP.NET Core Identity's
+// │ PasswordHasher (PBKDF2).
+// └──────────────────────────────────────────────────────────────────────────────────────
+builder.Services.AddDbContext<CustomerDbContext>(options =>
+    options.UseSqlite(builder.Configuration.GetConnectionString("PartnerIdentity")
+        ?? throw new InvalidOperationException("ConnectionStrings:PartnerIdentity is required.")));
+builder.Services.AddSingleton<IPasswordHasher<PartnerCustomer>, PasswordHasher<PartnerCustomer>>();
+builder.Services.AddSingleton(TimeProvider.System);
+builder.Services.AddScoped<CustomerStore>();
 
 builder.Services
     .AddIdentityServer(options =>
@@ -62,8 +78,16 @@ builder.Services
         options.Discovery.CustomEntries["authorization_details_types_supported"] = AuthorizationDetails.SupportedTypes.ToArray();
 
         options.UserInteraction.LoginUrl = "/Account/Login";
+        options.UserInteraction.LogoutUrl = "/Account/Logout";
         options.UserInteraction.ConsentUrl = "/Consent";
         options.UserInteraction.ErrorUrl = "/Error";
+
+        // ┌─ SEC ────────────────────────────────────────────────────────────────────────────────
+        // │ A Partner Bank session ends after a short idle time (default 10 minutes): customers
+        // │ often sit at a bank's desk, on a browser that is not theirs.
+        // └──────────────────────────────────────────────────────────────────────────────────────
+        options.Authentication.CookieLifetime = TimeSpan.FromMinutes(settings.SessionIdleMinutes);
+        options.Authentication.CookieSlidingExpiration = true;
 
         options.Events.RaiseErrorEvents = true;
         options.Events.RaiseFailureEvents = true;
@@ -73,7 +97,7 @@ builder.Services
     .AddInMemoryApiScopes(Config.ApiScopes)
     .AddInMemoryApiResources(Config.ApiResources)
     .AddInMemoryClients(Config.Clients(settings.EwpClient, ewpRequestSigning, settings.ProductsWindowClient).ToList())
-    .AddTestUsers(Config.DemoCustomers(settings.DemoCustomers))
+    .AddProfileService<CustomerProfileService>()
     .AddMutualTlsSecretValidators()
     .AddCustomAuthorizeRequestValidator<AuthorizationDetailsRequestValidator>()
     .AddCustomTokenRequestValidator<AuthorizationDetailsTokenValidator>();
@@ -95,6 +119,24 @@ builder.Services
 builder.Services.AddRazorPages();
 
 var app = builder.Build();
+
+using (var scope = app.Services.CreateScope())
+{
+    var db = scope.ServiceProvider.GetRequiredService<CustomerDbContext>();
+    db.Database.EnsureCreated();
+
+    // ┌─ ARCH ───────────────────────────────────────────────────────────────────────────────
+    // │ EnsureCreated never changes an EXISTING database: one from an older version is named
+    // │ at start-up, with the fix. Then the demo customers (Development) become accounts.
+    // └──────────────────────────────────────────────────────────────────────────────────────
+    string[] required = ["Customers", "PendingRegistrations"];
+    var existing = db.Database.SqlQueryRaw<string>("SELECT name AS Value FROM sqlite_master WHERE type = 'table'").ToHashSet(StringComparer.Ordinal);
+    var missing = required.Where(table => !existing.Contains(table)).ToList();
+    if (missing.Count > 0)
+        throw new InvalidOperationException(
+            $"The Partner Bank identity database was created by an older version (missing: {string.Join(", ", missing)}). Stop the server, delete partner-identity.db* in {app.Environment.ContentRootPath}, and start again.");
+    await scope.ServiceProvider.GetRequiredService<CustomerStore>().SeedAsync(settings.DemoCustomers, CancellationToken.None);
+}
 
 if (!app.Environment.IsDevelopment())
     app.UseHsts();

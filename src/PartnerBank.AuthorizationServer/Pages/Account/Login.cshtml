@@ -4,10 +4,18 @@
     ViewData["Title"] = "Sign in";
 }
 <section class="card">
-    <h1>Sign in to Partner Bank</h1>
-    @if (Model.ClientName is not null)
+    @if (Model.WelcomeBack is not null)
     {
-        <p class="lead">You came from <strong>@Model.ClientName</strong>. Sign in with your Partner Bank details to see our products.</p>
+        <h1>Welcome back, @Model.WelcomeBack</h1>
+        <p class="lead">You came from <strong>@Model.ClientName</strong>. Sign in with your Partner Bank password.</p>
+    }
+    else
+    {
+        <h1>Sign in to Partner Bank</h1>
+        @if (Model.ClientName is not null)
+        {
+            <p class="lead">You came from <strong>@Model.ClientName</strong>. Sign in with your Partner Bank details.</p>
+        }
     }
     @if (Model.ErrorMessage is not null)
     {
@@ -16,9 +24,17 @@
     <form method="post">
         <input type="hidden" asp-for="Input.ReturnUrl" />
         <label asp-for="Input.Username">Username</label>
-        <input asp-for="Input.Username" autocomplete="username" autofocus />
+        <input asp-for="Input.Username" autocomplete="username" />
         <label asp-for="Input.Password">Password</label>
-        <input asp-for="Input.Password" type="password" autocomplete="current-password" />
+        <input asp-for="Input.Password" type="password" autocomplete="current-password" autofocus />
         <button type="submit">Sign in</button>
     </form>
+    @if (Model.CanRegister)
+    {
+        <div class="register">
+            <h2>New to Partner Bank?</h2>
+            <p>Register with the details @Model.ClientName has verified - no forms to fill in.</p>
+            <a class="button secondary" asp-page="/Account/Register" asp-route-returnUrl="@Model.Input.ReturnUrl">Register</a>
+        </div>
+    }
 </section>

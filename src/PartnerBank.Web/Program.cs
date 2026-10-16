@@ -29,7 +29,7 @@ builder.Services
     })
     // ┌─ SEC ────────────────────────────────────────────────────────────────────────────────
     // │ The window's own session: a __Host- cookie (this host only, path /), HttpOnly,
-    // │ Secure, SameSite=Lax, 20 minutes sliding. It also holds the customer's access token
+    // │ Secure, SameSite=Lax, 10 minutes sliding. It also holds the customer's access token
     // │ (encrypted, server-issued cookie) - the browser's script can never read it.
     // └──────────────────────────────────────────────────────────────────────────────────────
     .AddCookie(options =>
@@ -38,7 +38,7 @@ builder.Services
         options.Cookie.HttpOnly = true;
         options.Cookie.SecurePolicy = CookieSecurePolicy.Always;
         options.Cookie.SameSite = SameSiteMode.Lax;
-        options.ExpireTimeSpan = TimeSpan.FromMinutes(20);
+        options.ExpireTimeSpan = TimeSpan.FromMinutes(10);
         options.SlidingExpiration = true;
     })
     // ┌─ SEC ────────────────────────────────────────────────────────────────────────────────
@@ -61,6 +61,15 @@ builder.Services
         options.SaveTokens = true;
         options.TokenValidationParameters.NameClaimType = "name";
         options.BackchannelHttpHandler = TrustedBackchannel.Create(trustRoot, settings.ResolvePartnerHostsTo);
+
+        // ┌─ SEC ────────────────────────────────────────────────────────────────────────────────
+        // │ max_age: a Partner Bank sign-in counts only if it is at most 2 minutes old. Right
+        // │ after the customer approved a request from their bank, the window opens without a
+        // │ second password; later - perhaps another person at the same desk - they must sign in
+        // │ again. Sign-out returns to the window's home page.
+        // └──────────────────────────────────────────────────────────────────────────────────────
+        options.MaxAge = TimeSpan.FromMinutes(2);
+        options.SignedOutRedirectUri = "/";
     });
 
 builder.Services.AddHttpContextAccessor();

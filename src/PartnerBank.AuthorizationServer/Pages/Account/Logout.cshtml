@@ -1,0 +1,20 @@
+@page
+@model PartnerBank.AuthorizationServer.Pages.Account.LogoutModel
+@{
+    ViewData["Title"] = "Sign out";
+}
+<section class="card">
+    @if (Model.Confirm)
+    {
+        <h1>Sign out of Partner Bank?</h1>
+        <form method="post">
+            <input type="hidden" asp-for="LogoutId" />
+            <button type="submit">Sign out</button>
+        </form>
+    }
+    else
+    {
+        <h1>You are signed out</h1>
+        <p>You can close this window.</p>
+    }
+</section>

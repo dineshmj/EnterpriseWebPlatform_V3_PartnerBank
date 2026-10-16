@@ -13,6 +13,10 @@
 // 5. Digital Gold: the customer approves AUD 10.00; EWP places the order (grams locked), sends the
 //    payment advice; the grams are allocated; the customer's holdings show them - to EWP (with the
 //    customer's approval) and in the customer's own window, "My Partner Bank".
+// 6. A shared desk: every request from EWP asks for a fresh sign-in; signing out of the window ends
+//    the Partner Bank session too - the next person sees nothing.
+// 7. A first-time customer (a new EWP customer, a fresh browser) registers with the details EWP
+//    verified, confirms with a one-time code, consents; next time: "Welcome back"; never twice.
 //
 // Needs %USERPROFILE%\.ewp-pki from EWP's ps\pki\New-EwpLocalPki.ps1. Every *.ewp.home.arpa name is
 // connected to the given address directly (no hosts-file entry needed); only the PoC's root is trusted.
@@ -86,6 +90,7 @@ var cookies = new CookieContainer();
 using var browser = Client(null, cookies);
 using var ewp = Client(ewpCertificate);
 using var impostor = Client(otherCertificate);
+var current = browser;   // the browser the helpers act in - section 7 switches to a fresh one
 
 // The browser follows redirects itself - but never into EWP's callback (it does not exist yet).
 async Task<(HttpResponseMessage Response, string Url)> Navigate(HttpResponseMessage response, string url)
@@ -96,7 +101,7 @@ async Task<(HttpResponseMessage Response, string Url)> Navigate(HttpResponseMess
         if (next.StartsWith(RedirectUri, StringComparison.Ordinal))
             return (response, next);
         url = next;
-        response = await browser.GetAsync(url);
+        response = await current.GetAsync(url);
     }
     return (response, url);
 }
@@ -145,7 +150,7 @@ async Task<(HttpResponseMessage Response, string? RequestUri, string Body)> Push
     {
         ["iss"] = ClientId, ["aud"] = Authority, ["client_id"] = ClientId, ["jti"] = Guid.NewGuid().ToString(),
         ["iat"] = now, ["nbf"] = now, ["exp"] = now + 300,
-        ["response_type"] = "code", ["redirect_uri"] = RedirectUri,
+        ["response_type"] = "code", ["redirect_uri"] = RedirectUri, ["prompt"] = "login",
         ["scope"] = "openid profile partner.products.read partner.applications.write",
         ["state"] = Base64Url(RandomNumberGenerator.GetBytes(16)),
         ["code_challenge"] = Base64Url(SHA256.HashData(Encoding.ASCII.GetBytes(codeVerifier))), ["code_challenge_method"] = "S256",
@@ -189,13 +194,30 @@ Check("Consent: the customer sees exactly what EWP asks, who offered it, and wha
 // The customer's decision on the consent page (the form's anti-forgery token included).
 async Task<string> DecideAsync(string html, string url, string decision)
 {
-    var answer = await browser.PostAsync(url, new FormUrlEncodedContent(new Dictionary<string, string>
+    var answer = await current.PostAsync(url, new FormUrlEncodedContent(new Dictionary<string, string>
     {
         ["ReturnUrl"] = Hidden(html, "ReturnUrl"),
         ["__RequestVerificationToken"] = Hidden(html, "__RequestVerificationToken"),
         ["decision"] = decision
     }));
     return (await Navigate(answer, url)).Url;
+}
+
+// Every request from EWP asks for a fresh sign-in (prompt=login): sign in when asked, then go on.
+async Task<(HttpResponseMessage Response, string Url)> SignInIfAskedAsync(HttpResponseMessage response, string url, string username = DemoUsername, string password = DemoPassword)
+{
+    var (page, pageUrl) = await Navigate(response, url);
+    if (!pageUrl.Contains("/Account/Login"))
+        return (page, pageUrl);
+    var html = await page.Content.ReadAsStringAsync();
+    var answer = await current.PostAsync(pageUrl, new FormUrlEncodedContent(new Dictionary<string, string>
+    {
+        ["Input.Username"] = username,
+        ["Input.Password"] = password,
+        ["Input.ReturnUrl"] = Hidden(html, "Input.ReturnUrl"),
+        ["__RequestVerificationToken"] = Hidden(html, "__RequestVerificationToken")
+    }));
+    return await Navigate(answer, pageUrl);
 }
 
 var callbackUrl = await DecideAsync(consentHtml, consentUrl, "approve");
@@ -221,7 +243,9 @@ Check("The token states exactly what the customer authorised (authorization_deta
 // A second request, declined: no code - EWP learns only that the customer said no.
 var (_, declinedRequestUri, _) = await PushSignedAsync(authorizationDetails, verifier);
 var declinedAuthorize = $"{Authority}/connect/authorize?client_id={ClientId}&request_uri={Uri.EscapeDataString(declinedRequestUri!)}";
-var (declinedConsent, declinedConsentUrl) = await Navigate(await browser.GetAsync(declinedAuthorize), declinedAuthorize);
+var (firstStop, firstStopUrl) = await Navigate(await browser.GetAsync(declinedAuthorize), declinedAuthorize);
+Check("Even with a Partner Bank session, a new EWP request asks for a fresh sign-in (prompt=login)", firstStopUrl.Contains("/Account/Login"), firstStopUrl.Split('?')[0]);
+var (declinedConsent, declinedConsentUrl) = await SignInIfAskedAsync(firstStop, firstStopUrl);
 var declinedCallback = await DecideAsync(await declinedConsent.Content.ReadAsStringAsync(), declinedConsentUrl, "decline");
 Check("Declined: the browser returns to EWP with access_denied and NO code",
     declinedCallback.Contains("error=access_denied") && !Regex.IsMatch(declinedCallback, "[?&]code="), declinedCallback.Split('?').Last());
@@ -232,7 +256,7 @@ async Task<(string? Token, string ConsentHtml)> ApprovedTokenAsync(JsonArray det
     var codeVerifier = Base64Url(RandomNumberGenerator.GetBytes(32));
     var (_, pushed, _) = await PushSignedAsync(details, codeVerifier);
     var url = $"{Authority}/connect/authorize?client_id={ClientId}&request_uri={Uri.EscapeDataString(pushed!)}";
-    var (page, pageUrl) = await Navigate(await browser.GetAsync(url), url);
+    var (page, pageUrl) = await SignInIfAskedAsync(await current.GetAsync(url), url);
     var html = await page.Content.ReadAsStringAsync();
     var approved = Regex.Match(await DecideAsync(html, pageUrl, "approve"), "[?&]code=([^&]+)").Groups[1].Value;
     var exchange = await ewp.PostAsync(tokenEndpoint, new FormUrlEncodedContent(new Dictionary<string, string>
@@ -406,10 +430,109 @@ Check("A purchase token cannot read holdings", holdingsWithPurchase.StatusCode =
 // The customer's own window: "My Partner Bank" - the same grams and activity, no EWP involved.
 var myUrl = $"{WindowOrigin}/My";
 var (myPage, _) = await Navigate(await browser.GetAsync(myUrl), myUrl);
-var myHtml = WebUtility.HtmlDecode(await myPage.Content.ReadAsStringAsync());
+var myRaw = await myPage.Content.ReadAsStringAsync();
+var myHtml = WebUtility.HtmlDecode(myRaw);
 Check("My Partner Bank shows the customer's own grams, applications and activity",
     myPage.IsSuccessStatusCode && myHtml.Contains($"{heldGrams:0.0000} g") && myHtml.Contains(orderNumber!) && myHtml.Contains("Partner Term Deposit, 12 months"),
     $"{heldGrams:0.0000} g, order {orderNumber}");
+
+Console.WriteLine();
+Console.WriteLine("6. A shared desk: signing out leaves nothing for the next person");
+
+var signOut = await browser.PostAsync($"{WindowOrigin}/SignOut", new FormUrlEncodedContent(new Dictionary<string, string>
+{
+    ["__RequestVerificationToken"] = Hidden(myRaw, "__RequestVerificationToken")
+}));
+var (_, signedOutUrl) = await Navigate(signOut, $"{WindowOrigin}/SignOut");
+Check("Sign out in the window ends its session AND the Partner Bank's", signedOutUrl.TrimEnd('/') == WindowOrigin, signedOutUrl);
+
+var (_, afterSignOutUrl) = await Navigate(await browser.GetAsync(myUrl), myUrl);
+Check("After sign-out, My Partner Bank asks for a password again", afterSignOutUrl.Contains("/Account/Login"), afterSignOutUrl.Split('?')[0]);
+
+Console.WriteLine();
+Console.WriteLine("7. A first-time customer registers with the details Four Walls verified");
+
+using var newcomer = Client(null, new CookieContainer());
+current = newcomer;
+var runId = RandomNumberGenerator.GetInt32(100_000, 1_000_000);
+var newCustomerNumber = $"CUST-9{runId}";
+var newUsername = $"priya{runId}";
+const string NewPassword = "Partner-New-2026!x";
+JsonArray NewcomerDetail() => new(new JsonObject
+{
+    ["type"] = "holdings_view",
+    ["customer"] = new JsonObject { ["ewpCustomerNumber"] = newCustomerNumber, ["name"] = "Priya Raman", ["dateOfBirth"] = "1991-03-22", ["kycVerified"] = true },
+    ["actor"] = new JsonObject { ["lanId"] = "somit", ["branch"] = "SYD001" }
+});
+
+async Task<(string LoginHtml, string LoginUrl, string CodeVerifier)> NewcomerArrivesAsync()
+{
+    var codeVerifier = Base64Url(RandomNumberGenerator.GetBytes(32));
+    var (_, pushed, _) = await PushSignedAsync(NewcomerDetail(), codeVerifier);
+    var url = $"{Authority}/connect/authorize?client_id={ClientId}&request_uri={Uri.EscapeDataString(pushed!)}";
+    var (page, pageUrl) = await Navigate(await newcomer.GetAsync(url), url);
+    return (await page.Content.ReadAsStringAsync(), pageUrl, codeVerifier);
+}
+
+var (newcomerLogin, newcomerLoginUrl, newcomerVerifier) = await NewcomerArrivesAsync();
+Check("The sign-in page offers a verified customer without an account to register",
+    newcomerLoginUrl.Contains("/Account/Login") && newcomerLogin.Contains("New to Partner Bank?"), newcomerLoginUrl.Split('?')[0]);
+
+var registerUrl = $"{Authority}/Account/Register?returnUrl={Uri.EscapeDataString(Hidden(newcomerLogin, "Input.ReturnUrl"))}";
+var registerRaw = await (await newcomer.GetAsync(registerUrl)).Content.ReadAsStringAsync();
+var registerHtml = WebUtility.HtmlDecode(registerRaw);
+Check("Registration shows the details Four Walls verified - read-only, not typed by the person",
+    registerHtml.Contains("Priya Raman") && registerHtml.Contains("22 March 1991") && registerHtml.Contains(newCustomerNumber) &&
+    !registerRaw.Contains("name=\"Input.Name\""), newCustomerNumber);
+
+var registered = await newcomer.PostAsync(registerUrl, new FormUrlEncodedContent(new Dictionary<string, string>
+{
+    ["Input.Username"] = newUsername,
+    ["Input.Password"] = NewPassword,
+    ["Input.Confirm"] = NewPassword,
+    ["Input.ReturnUrl"] = Hidden(registerRaw, "Input.ReturnUrl"),
+    ["__RequestVerificationToken"] = Hidden(registerRaw, "__RequestVerificationToken")
+}));
+var (verifyPage, verifyUrl) = await Navigate(registered, registerUrl);
+var verifyRaw = await verifyPage.Content.ReadAsStringAsync();
+var oneTimeCode = Regex.Match(verifyRaw, @"your code is <strong>(\d{6})</strong>").Groups[1].Value;
+Check("A one-time code is sent (in Development: shown in place of an SMS)", verifyUrl.Contains("/Account/Verify") && oneTimeCode.Length == 6, verifyUrl.Split('?')[0]);
+
+async Task<HttpResponseMessage> SendCodeAsync(string html, string code) =>
+    await newcomer.PostAsync(verifyUrl, new FormUrlEncodedContent(new Dictionary<string, string>
+    {
+        ["Id"] = Hidden(html, "Id"),
+        ["Code"] = code,
+        ["__RequestVerificationToken"] = Hidden(html, "__RequestVerificationToken")
+    }));
+
+var wrongCode = ((int.Parse(oneTimeCode) + 1) % 1_000_000).ToString("D6");
+var wrongAnswer = await (await SendCodeAsync(verifyRaw, wrongCode)).Content.ReadAsStringAsync();
+Check("A wrong code is refused", wrongAnswer.Contains("That code is not right"));
+
+var (newcomerConsent, newcomerConsentUrl) = await Navigate(await SendCodeAsync(wrongAnswer, oneTimeCode), verifyUrl);
+var newcomerConsentRaw = await newcomerConsent.Content.ReadAsStringAsync();
+Check("The right code creates the account and goes on to consent",
+    newcomerConsentUrl.Contains("/Consent") && WebUtility.HtmlDecode(newcomerConsentRaw).Contains("Show your Partner Bank holdings and activity"), newcomerConsentUrl.Split('?')[0]);
+
+var newcomerCallback = await DecideAsync(newcomerConsentRaw, newcomerConsentUrl, "approve");
+var newcomerExchange = await ewp.PostAsync(tokenEndpoint, new FormUrlEncodedContent(new Dictionary<string, string>
+{
+    ["grant_type"] = "authorization_code", ["client_id"] = ClientId, ["redirect_uri"] = RedirectUri, ["code_verifier"] = newcomerVerifier,
+    ["code"] = WebUtility.UrlDecode(Regex.Match(newcomerCallback, "[?&]code=([^&]+)").Groups[1].Value)
+}));
+var newcomerToken = Text(await newcomerExchange.Content.ReadAsStringAsync(), "access_token");
+var newcomerSubject = newcomerToken is null ? null : (string?)JsonNode.Parse(Encoding.UTF8.GetString(Base64UrlDecode(newcomerToken.Split('.')[1])))!["sub"];
+Check("The new customer has their own Partner Bank identity", newcomerSubject is not null && newcomerSubject.StartsWith("pb-") && newcomerSubject != "pb-customer-001", newcomerSubject ?? "no token");
+
+var (againLogin, _, _) = await NewcomerArrivesAsync();
+var againHtml = WebUtility.HtmlDecode(againLogin);
+Check("Next time: \"Welcome back\", the username filled in, no registration offered",
+    againHtml.Contains("Welcome back, Priya Raman") && againLogin.Contains($"value=\"{newUsername}\"") && !againHtml.Contains("New to Partner Bank?"));
+
+var registerAgain = WebUtility.HtmlDecode(await (await newcomer.GetAsync(
+    $"{Authority}/Account/Register?returnUrl={Uri.EscapeDataString(Hidden(againLogin, "Input.ReturnUrl"))}")).Content.ReadAsStringAsync());
+Check("The same Four Walls customer cannot register twice", registerAgain.Contains("You already have a Partner Bank account"));
 
 Console.WriteLine();
 Console.WriteLine(failures == 0 ? "All checks passed." : $"{failures} check(s) failed.");

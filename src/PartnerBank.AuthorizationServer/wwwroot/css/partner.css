@@ -90,3 +90,9 @@ h2 { margin: 20px 0 6px; font-size: 15px; color: var(--pb-muted); font-weight: n
 .decisions button { flex: 1; margin-top: 0; }
 button.secondary { background: #fff; color: var(--pb-green); border: 1px solid var(--pb-green); }
 button.secondary:hover { background: var(--pb-sand); }
+
+/* Registration */
+.register { margin-top: 24px; padding-top: 12px; border-top: 1px solid #e3e8e5; }
+a.button { display: inline-block; padding: 10px 20px; border-radius: 6px; text-decoration: none; text-align: center; }
+a.button.secondary { background: #fff; color: var(--pb-green); border: 1px solid var(--pb-green); }
+.demo { padding: 10px 12px; background: #fff7e0; border: 1px dashed #c99a00; border-radius: 6px; }
