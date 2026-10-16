@@ -141,7 +141,10 @@ using (var scope = app.Services.CreateScope())
 if (!app.Environment.IsDevelopment())
     app.UseHsts();
 
-app.UseSecurityHeaders();
+// Forms here (sign-in, registration, consent, sign-out) lead on to the clients' REGISTERED addresses.
+app.UseSecurityHeaders(settings.EwpClient.RedirectUris
+    .Concat(settings.ProductsWindowClient.RedirectUris)
+    .Concat(settings.ProductsWindowClient.PostLogoutRedirectUris));
 
 // ┌─ SEC ────────────────────────────────────────────────────────────────────────────────
 // │ The mTLS port serves only PAR, token, revocation and introspection; pages for people

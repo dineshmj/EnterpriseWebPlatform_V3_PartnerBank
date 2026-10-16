@@ -87,7 +87,8 @@ if (!app.Environment.IsDevelopment())
     app.UseHsts();
 }
 
-app.UseSecurityHeaders();
+// "Sign out" leads on to the authorization server (OpenID Connect end-session).
+app.UseSecurityHeaders([settings.Authority]);
 app.UseStaticFiles();
 app.UseRouting();
 app.UseAuthentication();
