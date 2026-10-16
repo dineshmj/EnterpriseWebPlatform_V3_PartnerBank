@@ -13,7 +13,8 @@ public static partial class GoldApi
 {
     public sealed record OrderView(
         string Number, string Status, decimal AmountAud, decimal PricePerGram, decimal Grams,
-        DateTimeOffset QuotedAt, DateTimeOffset QuoteExpiresAt, string? NetworkReference, DateTimeOffset? AllocatedAt, string? CancelReason);
+        DateTimeOffset QuotedAt, DateTimeOffset QuoteExpiresAt, string? NetworkReference, DateTimeOffset? AllocatedAt, string? CancelReason,
+        string? GoldAccountNumber, string? SlipNumber, decimal CommissionAud);
 
     public sealed record PaymentAdvice(string? NetworkReference, decimal? Amount);
 
@@ -25,8 +26,9 @@ public static partial class GoldApi
 
         gold.MapPost("/gold-orders", PlaceAsync).RequireAuthorization(ExternalApi.ApplicationsWritePolicy);
         gold.MapGet("/gold-orders/{number}", OrderAsync);
-        gold.MapPost("/gold-orders/{number}/payment-advice", PaymentAdviceAsync).RequireAuthorization(ExternalApi.ApplicationsWritePolicy);
-        gold.MapPost("/gold-orders/{number}/cancel", CancelAsync).RequireAuthorization(ExternalApi.ApplicationsWritePolicy);
+        // Payment advice and cancellation: for an order placed with the customer's token OR as a distributor.
+        gold.MapPost("/gold-orders/{number}/payment-advice", PaymentAdviceAsync).RequireAuthorization(ExternalApi.OrdersWritePolicy);
+        gold.MapPost("/gold-orders/{number}/cancel", CancelAsync).RequireAuthorization(ExternalApi.OrdersWritePolicy);
         gold.MapGet("/holdings", HoldingsAsync);
 
         // ┌─ SEC ────────────────────────────────────────────────────────────────────────────────
@@ -110,9 +112,10 @@ public static partial class GoldApi
         : result.Conflict is not null ? Results.Problem(result.Conflict, statusCode: StatusCodes.Status409Conflict)
         : Results.Ok(View(result.Order));
 
-    private static OrderView View(GoldOrder order) => new(
+    internal static OrderView View(GoldOrder order) => new(
         order.Number, order.Status, order.AmountAud, order.PricePerGram, order.Grams,
-        order.QuotedAt, order.QuoteExpiresAt, order.NetworkReference, order.AllocatedAt, order.CancelReason);
+        order.QuotedAt, order.QuoteExpiresAt, order.NetworkReference, order.AllocatedAt, order.CancelReason,
+        order.GoldAccountNumber, order.SlipNumber, order.CommissionAud);
 
     [GeneratedRegex("^[A-Za-z0-9-]{4,64}$")]
     private static partial Regex NetworkReferencePattern();

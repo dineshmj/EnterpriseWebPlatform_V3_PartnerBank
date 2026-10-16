@@ -28,6 +28,17 @@ Digital Gold (the customer approves an AUD amount; the grams are locked when the
    EWP's server ──mTLS + a holdings-view token──► GET /api/holdings  ──► grams, today's value, activity
 
 6. The customer, any time, in the Partner's own window: https://partner-products.ewp.home.arpa:47402/My
+
+EWP's counter - EWP as the Partner Bank's DISTRIBUTOR (assisted channel: the customer signs paper forms
+at EWP's counter and never signs in here; see doc/Architecture.md D14):
+
+7. EWP's server ──mTLS──► token (client credentials, scope partner.distribution): EWP's OWN token, bound to its certificate
+   Form VII (once): POST /api/distribution/gold-accounts      body: EWP's SIGNED instruction (application/jwt)
+                    ──► Digital Gold account PB-DGA-…; the Partner Bank sends the customer an SMS itself
+   Each purchase - the customer's transfer authorization slip:
+                    POST /api/distribution/gold-orders        body: SIGNED instruction ──► order, grams locked
+                    then the payment advice as in 5; EWP's commission is recorded on the order
+   The holding:     GET  /api/distribution/gold-accounts/{number}  ──► grams, today's value, activity
    ("My Partner Bank" - grams, today's value, applications, activity; read with the customer's own token)
 ```
 
@@ -113,7 +124,7 @@ Both tools are single-file .NET 10 apps acting from EWP's side (EWP's client cer
 
 ```powershell
 dotnet run tools\HandshakeCheck\HandshakeCheck.cs -- 192.168.1.12   # the authorization server: 22 checks
-dotnet run tools\JourneyCheck\JourneyCheck.cs -- 192.168.1.12       # the whole journey, as EWP AND as the customer's browser: 44 checks
+dotnet run tools\JourneyCheck\JourneyCheck.cs -- 192.168.1.12       # the whole journey, as EWP AND as the customer's browser: 62 checks
 ```
 
 Leave out the address for the Partner Bank on the same machine. The handshake check prints a link for a browser test; the browser needs `ewp-trust-root.cer` in "Trusted Root Certification Authorities" to open it without a warning.
@@ -160,6 +171,11 @@ Customer accounts live in the authorization server's own database, `src\PartnerB
 | 18a | **Digital Gold from the consented authorisation only**: an order takes its amount, paying account, customer and staff member from the token's approved `digital_gold_purchase` - never from a request body; one order per authorisation (the token's ID is unique), a token approved for anything else is refused | `Api/GoldApi.cs`, `Gold/GoldDesk.cs`, `Data/PartnerDbContext.cs` |
 | 18b | **Payment advice**: only for EWP's own order, only for the exact amount, only while it awaits payment; the same advice again changes nothing (grams allocated once); allocated gold cannot be cancelled; grams rounded DOWN, never more gold than paid for; a payment after the 5-minute lock is allocated at the price of the moment, and the activity says so | `Gold/GoldDesk.cs`, `Gold/GoldPrice.cs` |
 | 18c | **Holdings only with a consented holdings view**, only the customer's own grams and activity; the gold price is public, readable without a token on the localhost-only internal port | `Api/GoldApi.cs` |
+| 18d | **Distributor instructions are SIGNED by EWP** (a JWT in the body, `application/jwt`): ES256 with EWP's request-signing key only, type `partner-instruction+jwt`, issuer = the calling client, audience `partner-api`, at most 5 minutes' life, an ID (`jti`); unsigned, altered, expired or otherwise-signed instructions are refused - the Partner Bank keeps signed evidence of every instruction | `Distribution/SignedInstructions.cs` |
+| 18e | **Strict instruction contents** (allow-list, unknown fields refused): the customer identified by EWP (`kycVerified`), an adult, an Australian mobile; Form VII signed within 30 days, a transfer slip signed TODAY (Sydney); the SHA-256 of each scan; AUD with two decimals, at most 50,000 | `Distribution/Instructions.cs` |
+| 18f | **Once only, enforced by the database**: one Digital Gold account per customer of a distributor, per Form VII and per instruction; one purchase per slip and per instruction; the same instruction again returns the same result | `Data/PartnerDbContext.cs`, `Gold/GoldDesk.cs` |
+| 18g | **The Partner Bank's own checks of a distributor's purchase**: only for an account THIS distributor introduced (any other is a 404) and for that customer; the slip's mobile number must be the account's; the customer is told by SMS of every account and order (simulated: the log and the activity, the number masked) | `Gold/GoldDesk.cs`, `Api/DistributionApi.cs` |
+| 18h | **Distribution needs EWP's own bound token with the distribution scope** (client credentials - no customer, no consent page: the customer's consent is the signed form); a customer-consent token is refused there | `Program.cs`, AS `Configuration/Config.cs` |
 | 19 | **The authorization server is trusted only through the PoC's root** (discovery, keys): a server with another certificate is never believed | `PartnerBank.Security/TrustedBackchannel.cs` |
 
 **Window (`PartnerBank.Web`)**

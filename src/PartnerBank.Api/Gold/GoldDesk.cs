@@ -6,11 +6,12 @@ using Microsoft.EntityFrameworkCore;
 
 using PartnerBank.Api.Configuration;
 using PartnerBank.Api.Data;
+using PartnerBank.Api.Distribution;
 
 namespace PartnerBank.Api.Gold;
 
 /// <summary>The Partner Bank's Digital Gold desk: placing orders, receiving payments, allocating grams.</summary>
-public sealed class GoldDesk(PartnerDbContext db, TimeProvider clock, ApiOptions settings)
+public sealed class GoldDesk(PartnerDbContext db, TimeProvider clock, ApiOptions settings, ILogger<GoldDesk> logger)
 {
     public static readonly TimeSpan QuoteLock = TimeSpan.FromMinutes(5);
 
@@ -55,6 +56,148 @@ public sealed class GoldDesk(PartnerDbContext db, TimeProvider clock, ApiOptions
             $"Order {order.Number}: Digital Gold for AUD {Money(amount)} - {order.Grams:0.0000} g at AUD {Money(price)}/g, price locked until {Time(order.QuoteExpiresAt)}. Waiting for payment from your {Name(referrerClientId)} account.");
         await db.SaveChangesAsync(cancellationToken);
         return new PlaceResult(order, Created: true);
+    }
+
+    public sealed record OpenResult(GoldAccount? Account, bool Created, string? Conflict);
+
+    // ┌─ SEC ────────────────────────────────────────────────────────────────────────────────
+    // │ Opening a Digital Gold account on a distributor's SIGNED instruction (the customer's
+    // │ Form VII). Once only: the same instruction again returns the same account; a second
+    // │ account for the same customer, or a second use of the same form, is refused. The
+    // │ Partner Bank then tells the CUSTOMER itself (to the mobile on the form) - it did not see
+    // │ the form being signed, so the customer hears about the account from the Partner Bank too.
+    // └──────────────────────────────────────────────────────────────────────────────────────
+    public async Task<OpenResult> OpenAccountAsync(Instructions.Opening opening, string distributorClientId, string instructionId, CancellationToken cancellationToken)
+    {
+        var same = await db.GoldAccounts.AsNoTracking().FirstOrDefaultAsync(a => a.InstructionId == instructionId, cancellationToken);
+        if (same is not null)
+            return new OpenResult(same, Created: false, null);
+
+        var existing = await AccountOfCustomerAsync(opening.EwpCustomerNumber, distributorClientId, cancellationToken);
+        if (existing is not null)
+            return new OpenResult(existing, Created: false, $"Customer {opening.EwpCustomerNumber} already has Digital Gold account {existing.Number}.");
+        if (await db.GoldAccounts.AnyAsync(a => a.FormNumber == opening.FormNumber, cancellationToken))
+            return new OpenResult(null, Created: false, $"Form {opening.FormNumber} has already been used to open an account.");
+
+        var now = clock.GetUtcNow();
+        var account = new GoldAccount
+        {
+            Number = NewCode("PB-DGA-"),
+            DistributorClientId = distributorClientId,
+            EwpCustomerNumber = opening.EwpCustomerNumber,
+            HolderName = opening.Name,
+            DateOfBirth = opening.DateOfBirth,
+            Mobile = opening.Mobile,
+            FormNumber = opening.FormNumber,
+            FormSignedOn = opening.FormSignedOn,
+            FormScanSha256 = opening.FormScanSha256,
+            InstructionId = instructionId,
+            ActorLanId = opening.Actor.LanId,
+            ActorBranch = opening.Actor.Branch,
+            OpenedAt = now
+        };
+        db.GoldAccounts.Add(account);
+        Record(account.Number, now, account.Number,
+            $"Digital Gold account {account.Number} opened for {account.HolderName} through {Name(distributorClientId)} (application form {account.FormNumber}, signed {account.FormSignedOn.ToString("d MMMM yyyy", Australia)}).");
+        Notify(account, now, $"Partner Bank: your Digital Gold account {account.Number} is open. You applied through {Name(distributorClientId)}. Not you? Call us on 1300 000 000.");
+
+        if (await SaveOnceAsync(cancellationToken))
+            return new OpenResult(account, Created: true, null);
+        return new OpenResult(await db.GoldAccounts.AsNoTracking().FirstOrDefaultAsync(a => a.InstructionId == instructionId, cancellationToken),
+            Created: false, "The same customer or form was processed at the same moment - check the account before trying again.");
+    }
+
+    public sealed record PurchaseResult(GoldOrder? Order, bool Created, bool AccountFound, string? Conflict);
+
+    // ┌─ SEC ────────────────────────────────────────────────────────────────────────────────
+    // │ A purchase on a distributor's SIGNED instruction (the customer's transfer authorization
+    // │ slip): only for an account THIS distributor introduced and for THAT customer; the mobile
+    // │ number written on the slip must be the account's (a second check the Partner Bank can
+    // │ make itself); one slip, one purchase; the same instruction again returns the same order.
+    // └──────────────────────────────────────────────────────────────────────────────────────
+    public async Task<PurchaseResult> PlacePurchaseAsync(Instructions.GoldPurchase purchase, string distributorClientId, string instructionId, CancellationToken cancellationToken)
+    {
+        var same = await db.GoldOrders.AsNoTracking().FirstOrDefaultAsync(o => o.AuthorizationRef == instructionId, cancellationToken);
+        if (same is not null)
+            return new PurchaseResult(same, Created: false, AccountFound: true, null);
+
+        var account = await AccountAsync(purchase.GoldAccountNumber, distributorClientId, cancellationToken);
+        if (account is null)
+            return new PurchaseResult(null, Created: false, AccountFound: false, null);
+        if (account.EwpCustomerNumber != purchase.EwpCustomerNumber)
+            return new PurchaseResult(null, Created: false, AccountFound: true, $"Account {account.Number} belongs to another customer.");
+        if (account.Mobile != purchase.SlipMobile)
+            return new PurchaseResult(null, Created: false, AccountFound: true, "The mobile number on the transfer slip does not match the account's.");
+        if (await db.GoldOrders.AnyAsync(o => o.SlipNumber == purchase.SlipNumber, cancellationToken))
+            return new PurchaseResult(null, Created: false, AccountFound: true, $"Transfer slip {purchase.SlipNumber} has already been used.");
+
+        var now = clock.GetUtcNow();
+        var price = GoldPrice.PerGram(now);
+        var order = new GoldOrder
+        {
+            Number = NewNumber(now),
+            CustomerSubject = account.Number,
+            ReferrerClientId = distributorClientId,
+            AuthorizationRef = instructionId,
+            EwpCustomerNumber = account.EwpCustomerNumber,
+            GoldAccountNumber = account.Number,
+            SlipNumber = purchase.SlipNumber,
+            SlipScanSha256 = purchase.SlipScanSha256,
+            ActorLanId = purchase.Actor.LanId,
+            ActorBranch = purchase.Actor.Branch,
+            AmountAud = purchase.Amount,
+            DebtorBsb = purchase.DebtorBsb,
+            DebtorAccountNumber = purchase.DebtorAccountNumber,
+            PricePerGram = price,
+            Grams = GoldPrice.GramsFor(purchase.Amount, price),
+            CommissionAud = decimal.Round(purchase.Amount * settings.Distribution.CommissionPercent / 100m, 2, MidpointRounding.AwayFromZero),
+            QuotedAt = now,
+            QuoteExpiresAt = now + QuoteLock
+        };
+        db.GoldOrders.Add(order);
+        Record(account.Number, now, order.Number,
+            $"Order {order.Number}: Digital Gold for AUD {Money(order.AmountAud)} (transfer slip {order.SlipNumber}) - {order.Grams:0.0000} g at AUD {Money(price)}/g, price locked until {Time(order.QuoteExpiresAt)}. Waiting for payment from your {Name(distributorClientId)} account.");
+        Notify(account, now, $"Partner Bank: order {order.Number} for AUD {Money(order.AmountAud)} of Digital Gold placed through {Name(distributorClientId)}. Not you? Call us on 1300 000 000.");
+
+        if (await SaveOnceAsync(cancellationToken))
+            return new PurchaseResult(order, Created: true, AccountFound: true, null);
+        return new PurchaseResult(null, Created: false, AccountFound: true,
+            $"Transfer slip {purchase.SlipNumber} or this instruction was processed at the same moment - check the account before trying again.");
+    }
+
+    /// <summary>A Digital Gold account - only if THIS distributor introduced it.</summary>
+    public Task<GoldAccount?> AccountAsync(string number, string distributorClientId, CancellationToken cancellationToken) =>
+        db.GoldAccounts.AsNoTracking().FirstOrDefaultAsync(a => a.Number == number && a.DistributorClientId == distributorClientId, cancellationToken);
+
+    public Task<GoldAccount?> AccountOfCustomerAsync(string ewpCustomerNumber, string distributorClientId, CancellationToken cancellationToken) =>
+        db.GoldAccounts.AsNoTracking().FirstOrDefaultAsync(a => a.EwpCustomerNumber == ewpCustomerNumber && a.DistributorClientId == distributorClientId, cancellationToken);
+
+    /// <summary>Today's date in Sydney - the date a transfer slip must carry.</summary>
+    public DateOnly Today() => DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(clock.GetUtcNow(), Sydney).DateTime);
+
+    // The database's unique indexes are the final word on "once only": a race loses here, it never counts twice.
+    private async Task<bool> SaveOnceAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            await db.SaveChangesAsync(cancellationToken);
+            return true;
+        }
+        catch (DbUpdateException)
+        {
+            db.ChangeTracker.Clear();
+            return false;
+        }
+    }
+
+    // ┌─ SEC ────────────────────────────────────────────────────────────────────────────────
+    // │ PoC: the SMS is written to the log and to the customer's activity, the number masked
+    // │ to its last three digits (no full phone numbers in logs). In production: the SMS provider.
+    // └──────────────────────────────────────────────────────────────────────────────────────
+    private void Notify(GoldAccount account, DateTimeOffset at, string message)
+    {
+        logger.LogInformation("SMS to {Mobile} (simulated): {Message}", $"****{account.Mobile[^3..]}", message);
+        Record(account.Number, at, account.Number, $"Notice sent by SMS to your mobile ending {account.Mobile[^3..]}: \"{message}\"");
     }
 
     public sealed record AdviceResult(GoldOrder? Order, string? Conflict);
@@ -166,12 +309,14 @@ public sealed class GoldDesk(PartnerDbContext db, TimeProvider clock, ApiOptions
 
     private static string Time(DateTimeOffset at) => TimeZoneInfo.ConvertTime(at, Sydney).ToString("h:mm:ss tt", Australia) + " (Sydney time)";
 
-    private static string NewNumber(DateTimeOffset now)
+    private static string NewNumber(DateTimeOffset now) => NewCode($"PB-G-{now:yyMMdd}-");
+
+    private static string NewCode(string prefix)
     {
         const string alphabet = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
         Span<char> code = stackalloc char[6];
         for (var i = 0; i < code.Length; i++)
             code[i] = alphabet[RandomNumberGenerator.GetInt32(alphabet.Length)];
-        return $"PB-G-{now:yyMMdd}-{new string(code)}";
+        return prefix + new string(code);
     }
 }

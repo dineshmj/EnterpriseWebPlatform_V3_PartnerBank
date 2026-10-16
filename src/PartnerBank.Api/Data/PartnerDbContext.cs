@@ -11,6 +11,8 @@ public sealed class PartnerDbContext(DbContextOptions<PartnerDbContext> options)
 
     public DbSet<ProductApplication> Applications => Set<ProductApplication>();
 
+    public DbSet<GoldAccount> GoldAccounts => Set<GoldAccount>();
+
     public DbSet<GoldOrder> GoldOrders => Set<GoldOrder>();
 
     public DbSet<GoldHolding> GoldHoldings => Set<GoldHolding>();
@@ -34,6 +36,20 @@ public sealed class PartnerDbContext(DbContextOptions<PartnerDbContext> options)
             handoff.Property(h => h.EwpReference).HasMaxLength(64);
         });
 
+        model.Entity<GoldAccount>(account =>
+        {
+            account.HasKey(a => a.Id);
+            account.HasIndex(a => a.Number).IsUnique();
+            // ┌─ SEC ────────────────────────────────────────────────────────────────────────────────
+            // │ Once only, enforced by the database: one Digital Gold account per customer of a
+            // │ distributor, one account per signed Form VII, one per signed instruction - a resent
+            // │ or replayed instruction can never open a second account.
+            // └──────────────────────────────────────────────────────────────────────────────────────
+            account.HasIndex(a => new { a.DistributorClientId, a.EwpCustomerNumber }).IsUnique();
+            account.HasIndex(a => a.FormNumber).IsUnique();
+            account.HasIndex(a => a.InstructionId).IsUnique();
+        });
+
         model.Entity<GoldOrder>(order =>
         {
             order.HasKey(o => o.Id);
@@ -44,6 +60,9 @@ public sealed class PartnerDbContext(DbContextOptions<PartnerDbContext> options)
             // └──────────────────────────────────────────────────────────────────────────────────────
             order.HasIndex(o => o.AuthorizationRef).IsUnique();
             order.HasIndex(o => new { o.ReferrerClientId, o.NetworkReference });
+            // One transfer authorization slip, one purchase (NULL for orders from a customer's token).
+            order.HasIndex(o => o.SlipNumber).IsUnique();
+            order.Property(o => o.CommissionAud).HasPrecision(18, 2);
         });
 
         model.Entity<GoldHolding>(holding => holding.HasKey(h => h.CustomerSubject));

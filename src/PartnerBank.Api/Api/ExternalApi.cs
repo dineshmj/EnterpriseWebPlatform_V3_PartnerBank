@@ -14,6 +14,7 @@ public static class ExternalApi
     public const string EwpPolicy = "Ewp";
     public const string ProductsReadPolicy = "EwpProductsRead";
     public const string ApplicationsWritePolicy = "EwpApplicationsWrite";
+    public const string OrdersWritePolicy = "EwpOrdersWrite";
 
     public sealed record HandoffRequest(string? EwpReference);
 

@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using PartnerBank.Api.Api;
 using PartnerBank.Api.Configuration;
 using PartnerBank.Api.Data;
+using PartnerBank.Api.Distribution;
 using PartnerBank.Api.Gold;
 using PartnerBank.Api.Security;
 using PartnerBank.Security;
@@ -41,6 +42,8 @@ builder.Services.AddDbContext<PartnerDbContext>(options =>
         ?? throw new InvalidOperationException("ConnectionStrings:PartnerBank is required.")));
 
 builder.Services.AddScoped<GoldDesk>();
+// EWP's signed distributor instructions: checked with its request-signing certificate (loaded once, fails at start-up if missing).
+builder.Services.AddSingleton<SignedInstructions>();
 
 var backchannel = TrustedBackchannel.Create(trustRoot, settings.ResolvePartnerHostsTo);
 
@@ -89,6 +92,17 @@ builder.Services.AddAuthorizationBuilder()
     .AddPolicy(ExternalApi.ApplicationsWritePolicy, policy => policy
         .AddAuthenticationSchemes(EwpScheme)
         .RequireClaim("scope", "partner.applications.write"))
+    // ┌─ SEC ────────────────────────────────────────────────────────────────────────────────
+    // │ Distribution: EWP's OWN token (client credentials - no customer in it), with the
+    // │ distribution scope. What it may do for a customer comes from the signed instruction
+    // │ in the body, checked on every call - never from the token alone.
+    // └──────────────────────────────────────────────────────────────────────────────────────
+    .AddPolicy(DistributionApi.DistributionPolicy, policy => policy
+        .AddAuthenticationSchemes(EwpScheme)
+        .RequireClaim("scope", "partner.distribution"))
+    .AddPolicy(ExternalApi.OrdersWritePolicy, policy => policy
+        .AddAuthenticationSchemes(EwpScheme)
+        .RequireClaim("scope", "partner.applications.write", "partner.distribution"))
     .AddPolicy(InternalApi.WindowPolicy, policy => policy
         .AddAuthenticationSchemes(WindowScheme)
         .RequireAuthenticatedUser()
@@ -112,9 +126,12 @@ using (var scope = app.Services.CreateScope())
     // │ the newer tables. Fail at start-up with the fix, instead of on the first request.
     // └──────────────────────────────────────────────────────────────────────────────────────
     // The tables this version needs, checked in SQLite's own catalogue - no failing query, no error noise in the log.
-    string[] required = ["Products", "Handoffs", "Applications", "GoldOrders", "GoldHoldings", "Activity"];
+    string[] required = ["Products", "Handoffs", "Applications", "GoldAccounts", "GoldOrders", "GoldHoldings", "Activity"];
     var existing = db.Database.SqlQueryRaw<string>("SELECT name AS Value FROM sqlite_master WHERE type = 'table'").ToHashSet(StringComparer.Ordinal);
     var missing = required.Where(table => !existing.Contains(table)).ToList();
+    var orderColumns = db.Database.SqlQueryRaw<string>("SELECT name AS Value FROM pragma_table_info('GoldOrders')").ToHashSet(StringComparer.Ordinal);
+    if (existing.Contains("GoldOrders") && !orderColumns.Contains("SlipNumber"))
+        missing.Add("GoldOrders.SlipNumber");
     if (missing.Count > 0)
     {
         throw new InvalidOperationException(
@@ -135,6 +152,7 @@ app.UseAuthorization();
 app.MapExternalApi();
 app.MapInternalApi();
 app.MapGoldApi();
+app.MapDistributionApi();
 
 app.Logger.LogInformation("Partner Bank API: external {External} (mutual TLS), internal {Internal} (localhost), authorization server {Authority}.",
     settings.ExternalBaseUrl, settings.InternalBaseUrl, settings.Authority);

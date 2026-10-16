@@ -17,6 +17,10 @@
 //    the Partner Bank session too - the next person sees nothing.
 // 7. A first-time customer (a new EWP customer, a fresh browser) registers with the details EWP
 //    verified, confirms with a one-time code, consents; next time: "Welcome back"; never twice.
+// 8. EWP as the Partner Bank's distributor (assisted channel: the customer signs paper forms at
+//    EWP's counter, never signs in here): EWP's own token, SIGNED instructions - Form VII opens a
+//    Digital Gold account, a transfer authorization slip buys gold; refusals for unsigned, altered,
+//    expired, other-key, unknown-field, reused-slip, wrong-mobile and old-slip instructions.
 //
 // Needs %USERPROFILE%\.ewp-pki from EWP's ps\pki\New-EwpLocalPki.ps1. Every *.ewp.home.arpa name is
 // connected to the given address directly (no hosts-file entry needed); only the PoC's root is trusted.
@@ -545,6 +549,139 @@ Check("Next time: \"Welcome back\", the username filled in, no registration offe
 var registerAgain = WebUtility.HtmlDecode(await (await newcomer.GetAsync(
     $"{Authority}/Account/Register?returnUrl={Uri.EscapeDataString(Hidden(againLogin, "Input.ReturnUrl"))}")).Content.ReadAsStringAsync());
 Check("The same Four Walls customer cannot register twice", registerAgain.Contains("You already have a Partner Bank account"));
+
+Console.WriteLine();
+Console.WriteLine("8. EWP as the Partner Bank's distributor: Form VII opens the account, a transfer slip buys gold");
+
+// EWP's OWN token (client credentials over mutual TLS): no customer, bound to EWP's certificate.
+var distributionResponse = await ewp.PostAsync(tokenEndpoint, new FormUrlEncodedContent(new Dictionary<string, string>
+{
+    ["grant_type"] = "client_credentials", ["client_id"] = ClientId, ["scope"] = "partner.distribution"
+}));
+var distributionToken = Text(await distributionResponse.Content.ReadAsStringAsync(), "access_token");
+var distributionPayload = distributionToken is null ? null : JsonNode.Parse(Encoding.UTF8.GetString(Base64UrlDecode(distributionToken.Split('.')[1])));
+Check("EWP gets its own token (client credentials, no customer), bound to its certificate",
+    distributionPayload?["cnf"]?["x5t#S256"] is not null && distributionPayload["sub"] is null, $"HTTP {(int)distributionResponse.StatusCode}");
+
+var sydneyToday = DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(DateTimeOffset.UtcNow, TimeZoneInfo.FindSystemTimeZoneById("Australia/Sydney")).DateTime);
+var distRun = RandomNumberGenerator.GetInt32(100_000, 1_000_000);
+var distCustomer = $"CUST-8{distRun}";
+var distMobile = $"+61400{distRun}";
+static string ScanHash(string text) => Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(text)));
+
+string SignInstruction(JsonObject instruction, ECDsa? key = null, string? jti = null, long? issuedAt = null, string typ = "partner-instruction+jwt")
+{
+    var iat = issuedAt ?? DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+    var header = Base64Url(Encoding.UTF8.GetBytes(new JsonObject { ["alg"] = "ES256", ["typ"] = typ, ["kid"] = signingCertificate.Thumbprint }.ToJsonString()));
+    var body = Base64Url(Encoding.UTF8.GetBytes(new JsonObject
+    {
+        ["iss"] = ClientId, ["aud"] = "partner-api", ["jti"] = jti ?? Guid.NewGuid().ToString(), ["iat"] = iat, ["exp"] = iat + 300,
+        ["instruction"] = instruction.DeepClone()
+    }.ToJsonString()));
+    var signature = Base64Url((key ?? signingCertificate.GetECDsaPrivateKey()!).SignData(Encoding.ASCII.GetBytes($"{header}.{body}"), HashAlgorithmName.SHA256));
+    return $"{header}.{body}.{signature}";
+}
+
+async Task<(HttpStatusCode Status, string Body)> InstructAsync(string path, string compact, string? token = null, HttpClient? connection = null)
+{
+    var request = new HttpRequestMessage(HttpMethod.Post, $"{Api}{path}") { Content = new StringContent(compact, Encoding.ASCII, "application/jwt") };
+    request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token ?? distributionToken);
+    var response = await (connection ?? ewp).SendAsync(request);
+    return (response.StatusCode, await response.Content.ReadAsStringAsync());
+}
+
+JsonObject Actor() => new() { ["lanId"] = "somit", ["branch"] = "SYD001" };
+JsonObject FormVii(string formNumber) => new()
+{
+    ["type"] = "digital_gold_account_opening",
+    ["customer"] = new JsonObject { ["ewpCustomerNumber"] = distCustomer, ["name"] = "Camilla Parker", ["dateOfBirth"] = "1988-07-14", ["mobile"] = distMobile, ["kycVerified"] = true },
+    ["form"] = new JsonObject { ["number"] = formNumber, ["signedOn"] = sydneyToday.ToString("yyyy-MM-dd"), ["scanSha256"] = ScanHash(formNumber) },
+    ["actor"] = Actor()
+};
+
+var formNumber = $"VII-{distRun}";
+var unsigned = $"{Base64Url(Encoding.UTF8.GetBytes("{\"alg\":\"none\",\"typ\":\"partner-instruction+jwt\"}"))}.{SignInstruction(FormVii(formNumber)).Split('.')[1]}.";
+var (unsignedStatus, _) = await InstructAsync("/api/distribution/gold-accounts", unsigned);
+Check("An UNSIGNED instruction is refused", unsignedStatus == HttpStatusCode.BadRequest, $"HTTP {(int)unsignedStatus}");
+
+using var strangerKey = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+var (strangerStatus, _) = await InstructAsync("/api/distribution/gold-accounts", SignInstruction(FormVii(formNumber), strangerKey));
+Check("An instruction signed with ANOTHER key is refused", strangerStatus == HttpStatusCode.BadRequest, $"HTTP {(int)strangerStatus}");
+
+var genuine = SignInstruction(FormVii(formNumber)).Split('.');
+var tamperedBody = Base64Url(Encoding.UTF8.GetBytes(Encoding.UTF8.GetString(Base64UrlDecode(genuine[1])).Replace("Camilla Parker", "Mallory Parker")));
+var (tamperedStatus, _) = await InstructAsync("/api/distribution/gold-accounts", $"{genuine[0]}.{tamperedBody}.{genuine[2]}");
+Check("An ALTERED instruction (another name after signing) is refused", tamperedStatus == HttpStatusCode.BadRequest, $"HTTP {(int)tamperedStatus}");
+
+var (expiredStatus, _) = await InstructAsync("/api/distribution/gold-accounts", SignInstruction(FormVii(formNumber), issuedAt: DateTimeOffset.UtcNow.ToUnixTimeSeconds() - 900));
+Check("An EXPIRED instruction is refused", expiredStatus == HttpStatusCode.BadRequest, $"HTTP {(int)expiredStatus}");
+
+var extraField = FormVii(formNumber);
+extraField["customer"]!["creditLimit"] = "1000000";
+var (extraStatus, _) = await InstructAsync("/api/distribution/gold-accounts", SignInstruction(extraField));
+Check("A signed instruction with an unknown field is refused (allow-list)", extraStatus == HttpStatusCode.BadRequest, $"HTTP {(int)extraStatus}");
+
+var (noScopeStatus, _) = await InstructAsync("/api/distribution/gold-accounts", SignInstruction(FormVii(formNumber)), token: customerToken);
+Check("A token without the distribution scope is refused", noScopeStatus == HttpStatusCode.Forbidden, $"HTTP {(int)noScopeStatus}");
+
+var openingJti = Guid.NewGuid().ToString();
+var opening = SignInstruction(FormVii(formNumber), jti: openingJti);
+var (openStatus, openBody) = await InstructAsync("/api/distribution/gold-accounts", opening);
+var goldAccount = Text(openBody, "number");
+Check("Form VII, signed by EWP: the Partner Bank opens a Digital Gold account", openStatus == HttpStatusCode.Created && goldAccount?.StartsWith("PB-DGA-") == true, $"HTTP {(int)openStatus} {goldAccount}");
+
+var (againStatus, againBody) = await InstructAsync("/api/distribution/gold-accounts", opening);
+Check("The same instruction again: the same account, not a second one", againStatus == HttpStatusCode.OK && Text(againBody, "number") == goldAccount, $"HTTP {(int)againStatus}");
+
+var (secondStatus, secondBody) = await InstructAsync("/api/distribution/gold-accounts", SignInstruction(FormVii($"VII-{distRun}-2")));
+Check("A second Form VII for the same customer is refused (one account per customer)",
+    secondStatus == HttpStatusCode.Conflict && secondBody.Contains(goldAccount ?? "?"), $"HTTP {(int)secondStatus}");
+
+var lookup = await ewp.SendAsync(ApiRequest(HttpMethod.Get, $"/api/distribution/gold-accounts?ewpCustomerNumber={distCustomer}", distributionToken));
+Check("EWP finds the account by its customer number", lookup.IsSuccessStatusCode && Text(await lookup.Content.ReadAsStringAsync(), "number") == goldAccount, $"HTTP {(int)lookup.StatusCode}");
+
+JsonObject Slip(string slipNumber, string? mobile = null, DateOnly? signedOn = null, string? account = null) => new()
+{
+    ["type"] = "digital_gold_purchase",
+    ["goldAccountNumber"] = account ?? goldAccount,
+    ["customer"] = new JsonObject { ["ewpCustomerNumber"] = distCustomer },
+    ["instructedAmount"] = new JsonObject { ["currency"] = "AUD", ["amount"] = "20.00" },
+    ["debtorAccount"] = new JsonObject { ["bsb"] = "062-000", ["accountNumber"] = "12345678" },
+    ["slip"] = new JsonObject { ["number"] = slipNumber, ["signedOn"] = (signedOn ?? sydneyToday).ToString("yyyy-MM-dd"), ["mobile"] = mobile ?? distMobile, ["scanSha256"] = ScanHash(slipNumber) },
+    ["actor"] = Actor()
+};
+
+var slipNumber = $"TAS-{distRun}";
+var (buyStatus, buyBody) = await InstructAsync("/api/distribution/gold-orders", SignInstruction(Slip(slipNumber)));
+var distOrder = Text(buyBody, "number");
+var buyJson = JsonNode.Parse(buyBody);
+Check("A transfer slip, signed by EWP: AUD 20.00 of gold, grams locked, EWP's commission recorded",
+    buyStatus == HttpStatusCode.Created && (string?)buyJson?["goldAccountNumber"] == goldAccount && (decimal?)buyJson?["commissionAud"] == 0.10m && (decimal?)buyJson?["grams"] > 0,
+    $"HTTP {(int)buyStatus} {distOrder}");
+
+var (slipAgainStatus, _) = await InstructAsync("/api/distribution/gold-orders", SignInstruction(Slip(slipNumber)));
+Check("The same slip in a new instruction is refused (one slip, one purchase)", slipAgainStatus == HttpStatusCode.Conflict, $"HTTP {(int)slipAgainStatus}");
+
+var (mobileStatus, _) = await InstructAsync("/api/distribution/gold-orders", SignInstruction(Slip($"TAS-{distRun}-M", mobile: "+61499999999")));
+Check("A slip with a mobile number that is not the account's is refused", mobileStatus == HttpStatusCode.Conflict, $"HTTP {(int)mobileStatus}");
+
+var (oldSlipStatus, _) = await InstructAsync("/api/distribution/gold-orders", SignInstruction(Slip($"TAS-{distRun}-Y", signedOn: sydneyToday.AddDays(-1))));
+Check("A slip not signed today is refused (it buys at today's price)", oldSlipStatus == HttpStatusCode.BadRequest, $"HTTP {(int)oldSlipStatus}");
+
+var (unknownStatus, _) = await InstructAsync("/api/distribution/gold-orders", SignInstruction(Slip($"TAS-{distRun}-U", account: "PB-DGA-ZZZZZZ")));
+Check("A purchase for an account EWP did not introduce: 404", unknownStatus == HttpStatusCode.NotFound, $"HTTP {(int)unknownStatus}");
+
+var distAdvice = await ewp.SendAsync(ApiRequest(HttpMethod.Post, $"/api/gold-orders/{distOrder}/payment-advice", distributionToken,
+    new JsonObject { ["networkReference"] = $"NPP-D{distRun}", ["amount"] = 20.00m }));
+Check("Payment advice with EWP's own token: the grams are allocated", distAdvice.IsSuccessStatusCode && Text(await distAdvice.Content.ReadAsStringAsync(), "status") == "ALLOCATED",
+    $"HTTP {(int)distAdvice.StatusCode}");
+
+var holdingResponse = await ewp.SendAsync(ApiRequest(HttpMethod.Get, $"/api/distribution/gold-accounts/{goldAccount}", distributionToken));
+var holdingJson = JsonNode.Parse(await holdingResponse.Content.ReadAsStringAsync());
+var holdingText = holdingJson?.ToJsonString() ?? "";
+Check("EWP reads the holding from the Partner Bank: grams, today's value, and the SMS notices the Partner Bank sent the customer",
+    holdingResponse.IsSuccessStatusCode && (decimal?)holdingJson?["holding"]?["grams"] == (decimal?)buyJson?["grams"] && (decimal?)holdingJson?["holding"]?["valueAud"] > 0 &&
+    holdingText.Contains("Notice sent by SMS"), $"HTTP {(int)holdingResponse.StatusCode}");
 
 Console.WriteLine();
 Console.WriteLine(failures == 0 ? "All checks passed." : $"{failures} check(s) failed.");

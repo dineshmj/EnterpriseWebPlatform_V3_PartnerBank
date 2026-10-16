@@ -48,6 +48,10 @@ Scope: the Partner Bank's three deployables and their two boundaries - EWP's ser
 | T21 | At a bank's desk, the next person uses the previous customer's Partner Bank session | every EWP request requires a fresh sign-in (`prompt=login`, inside the signed request, enforced); the window accepts only a sign-in of the last 2 minutes; "Sign out" ends both sessions; 10-minute idle sessions | 10c, 21b |
 | T22 | Someone registers as another person, registers twice, or guesses the one-time code | registration only from a signed request for a verified customer, identity read-only; once per referred customer; the code is 6 digits, 5 minutes, 5 tries, stored as a salted hash | 10b |
 | T23 | Password guessing at the Partner Bank's sign-in | hashed passwords; account lockout after 5 wrong passwords (15 minutes) | 10a |
+| T24 | A forged or altered distributor instruction (another customer, a bigger amount) | every instruction is signed by EWP's request-signing key (ES256) and checked against EWP's certificate; issuer = the calling client; altered, unsigned, expired or otherwise-signed instructions refused | 18d |
+| T25 | A replayed instruction or a reused paper slip buys gold twice | once-only by instruction ID, slip number and form number, enforced by unique indexes; the same instruction returns the same result | 18f |
+| T26 | EWP (or someone using EWP's connection) buys for a customer who never signed, or for another distributor's customer | only accounts EWP introduced (404 otherwise); the slip's mobile must match the account's; the Partner Bank tells the customer of every account and order by SMS itself ("Not you? Call us"); the scan's hash is part of the signed instruction - EWP must be able to produce the form | 18e, 18g |
+| T27 | A customer-consent token is used to act as a distributor, or EWP's distribution token without a signed instruction | distribution needs EWP's own token with the distribution scope AND a signed instruction in the body on every call | 18h |
 
 ## 4. Residual risks (accepted for the PoC)
 
@@ -61,3 +65,4 @@ Scope: the Partner Bank's three deployables and their two boundaries - EWP's ser
 | R6 | Windows 10 on the home PC no longer receives security updates | supported operating systems; the PoC's ports are open to the home network (Private profile) only |
 | R7 | ~~EWP's pushed requests are not signed~~ - **closed 2026-10-16** by message signing (decision D4, controls 12a-12c) | - |
 | R8 | EWP's request-signing key is in a file on the laptop | an HSM or a key-management service; signing done by the service, the key never exported |
+| R9 | The Partner Bank cannot see the customer sign Form VII or a slip: it relies on EWP (the distribution agreement, the scan's hash, after-the-fact SMS notices) | the agreement's audit rights (sample checks of scans against hashes), a cooling-off period, notices through the Partner Bank's own app |

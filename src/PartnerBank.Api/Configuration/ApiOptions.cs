@@ -30,6 +30,12 @@ public sealed class ApiOptions
     /// <summary>EWP as customers know it, for their activity (e.g. "Four Walls").</summary>
     public string EwpDisplayName { get; init; } = "Four Walls";
 
+    /// <summary>EWP's request-signing certificate (public part, ECDSA P-256): its signed distributor instructions are checked with it.</summary>
+    public string EwpRequestSigningCertificatePath { get; init; } = string.Empty;
+
+    /// <summary>The terms of EWP's distribution agreement.</summary>
+    public DistributionOptions Distribution { get; init; } = new();
+
     /// <summary>The only client that may call the internal API: the Partner's own window.</summary>
     public string WindowClientId { get; init; } = string.Empty;
 
@@ -59,5 +65,9 @@ public sealed class ApiOptions
         }
         if (string.IsNullOrWhiteSpace(EwpClientId) || string.IsNullOrWhiteSpace(WindowClientId))
             throw new InvalidOperationException("PartnerBank:EwpClientId and WindowClientId are required.");
+        if (string.IsNullOrWhiteSpace(EwpRequestSigningCertificatePath))
+            throw new InvalidOperationException("PartnerBank:EwpRequestSigningCertificatePath is required (EWP's signed instructions are checked with it).");
+        if (Distribution.CommissionPercent is < 0 or > 5)
+            throw new InvalidOperationException("PartnerBank:Distribution:CommissionPercent must be between 0 and 5.");
     }
 }

@@ -13,6 +13,7 @@ public static class Config
     public const string ProductsRead = "partner.products.read";
     public const string ApplicationsWrite = "partner.applications.write";
     public const string Customer = "partner.customer";
+    public const string Distribution = "partner.distribution";
 
     public static IEnumerable<IdentityResource> IdentityResources =>
     [
@@ -24,12 +25,13 @@ public static class Config
     [
         new(ProductsRead, "See the Partner Bank's products"),
         new(ApplicationsWrite, "Apply for a Partner Bank product"),
-        new(Customer, "The signed-in customer, through the Partner's own window")
+        new(Customer, "The signed-in customer, through the Partner's own window"),
+        new(Distribution, "Open Digital Gold accounts and place purchases as a distributor, on the customer's signed forms")
     ];
 
     public static IEnumerable<ApiResource> ApiResources =>
     [
-        new("partner-api", "Partner Bank API") { Scopes = { ProductsRead, ApplicationsWrite, Customer } }
+        new("partner-api", "Partner Bank API") { Scopes = { ProductsRead, ApplicationsWrite, Customer, Distribution } }
     ];
 
     public static IEnumerable<Client> Clients(EwpClientOptions ewp, X509Certificate2 ewpRequestSigning, ProductsWindowClientOptions productsWindow)
@@ -127,7 +129,13 @@ public static class Config
                 IdentityServerConstants.StandardScopes.OpenId,
                 IdentityServerConstants.StandardScopes.Profile,
                 ProductsRead,
-                ApplicationsWrite
+                ApplicationsWrite,
+                // ┌─ SEC ────────────────────────────────────────────────────────────────────────────────
+                // │ Distribution: client credentials only (no customer, no consent page - the
+                // │ customer's consent is the form signed at EWP's counter); the token is bound to
+                // │ EWP's certificate like every other, and each instruction is signed (D14).
+                // └──────────────────────────────────────────────────────────────────────────────────────
+                Distribution
             },
 
             // ┌─ SEC ────────────────────────────────────────────────────────────────────────────────

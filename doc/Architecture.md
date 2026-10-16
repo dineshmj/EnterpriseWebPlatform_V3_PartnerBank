@@ -50,6 +50,7 @@ Both trust **one root** (`EWP Local Trust Root (DEVELOPMENT ONLY)`), created by 
 | D8 | **SQLite created at start-up, no migrations** | PoC: delete the file to start again - the same rule as EWP's full database scripts |
 | D9 | **Catalogue**: Term Deposit and Bonus Saver (simple applications) and Digital Gold (the full flow); the home loan was removed | lending is a bounded context of its own and deserves proper treatment later |
 | D10 | **Consent for every request, never remembered** (2026-10-16) | open banking's rule: the customer approves at the organisation that holds the relationship, each specific request on its own - approving one purchase is not approving the next |
+| D14 | **At EWP's counter, EWP is the Partner Bank's DISTRIBUTOR** (2026-10-16): the customer signs **Form VII** (the Partner Bank's Digital Gold application: details, terms, consent to share the holding with EWP) once, and a **transfer authorization slip** for each purchase; EWP authenticates itself (mutual TLS, client credentials, a bound token) and SIGNS each instruction with the form's number and the SHA-256 of its scan; the Partner Bank opens the account, becomes its system of record, tells the customer by SMS, and pays EWP a commission per purchase | assisted-channel practice: staff never handle a customer's credentials and the customer does not sign in on the bank's PC; distribution (agency) agreements with reliance on the distributor's identification; the sign-in, consent and registration pages (D10, D12, D13) remain the customer's OWN channel |
 | D11 | **Approve the amount, lock the grams at the order** (2026-10-16): the consent page shows an indicative quote; the order placed right after the approval locks the grams for 5 minutes; a payment after the lock is allocated at the price of the moment | how digital-gold products work: the customer commits to the money, the metal follows the market; never more gold than was paid for |
 | D12 | **The Partner Bank's own customer accounts; EWP's verified data only pre-fills** (2026-10-16): a first-time customer registers with the details EWP verified, shown read-only, and proves possession of their phone with a one-time code; EWP's word never signs anyone in | FAPI / open banking: the customer authenticates at the organisation that holds the relationship; reliance on EWP's KYC removes retyping, not authentication |
 | D13 | **A bank's desk is a shared device** (2026-10-16): fresh sign-in for every EWP request (`prompt=login`, enforced), `max_age` 2 minutes for the window, sign-out of both sessions, 10-minute idle sessions | single sign-on is right on a customer's own phone and wrong at Sophie's desk: the next customer must never see the previous one's gold |
@@ -76,7 +77,13 @@ Both trust **one root** (`EWP Local Trust Root (DEVELOPMENT ONLY)`), created by 
 
 **A shared desk**: every EWP request asks for a fresh sign-in (`prompt=login`, inside the signed request); the window accepts only a sign-in of the last 2 minutes (`max_age`); "Sign out" ends the window's and the Partner Bank's sessions; sessions end after 10 idle minutes. Verified by `tools\JourneyCheck`, section 6.
 
-**Next**: (pre-filled from EWP's verified data, with a one-time code); then EWP's side - "Partner Products → Digital Gold", its Temporal workflow and the payment through EWP's Payments saga.
+**EWP's counter - the distributor model** (D14; verified by `tools\JourneyCheck`, section 8):
+
+1. Camilla signs Form VII at EWP's counter; Sophie records it (number, date, scan) in EWP. EWP's server gets its own token (client credentials over mutual TLS, bound to its certificate) and sends a SIGNED `digital_gold_account_opening` instruction: the Partner Bank opens Digital Gold account PB-DGA-… for Camilla (one per customer, per form) and sends her an SMS.
+2. Any time later, Camilla signs a transfer authorization slip (amount, her mobile number). EWP sends a SIGNED `digital_gold_purchase` instruction: the Partner Bank checks the account is EWP's customer's, the slip's mobile is the account's and the slip is today's and unused; it places the order (grams locked 5 minutes) and records EWP's commission.
+3. EWP pays and sends the payment advice: the grams are allocated. EWP reads the holding (grams, today's value, activity) from the Partner Bank - never a copy of its own.
+
+**Next**: EWP's side - "Partner Products → Digital Gold", its Temporal workflow and the payment through EWP's Payments saga.
 
 ## 5. Ports
 
