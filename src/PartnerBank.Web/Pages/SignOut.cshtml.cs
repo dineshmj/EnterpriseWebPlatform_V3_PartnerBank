@@ -17,14 +17,15 @@ public sealed class SignOutModel(IAntiforgery antiforgery) : PageModel
     // │ ended (10 idle minutes), the token - issued for the signed-in customer - can no longer
     // │ match: there is nothing left to protect here, so the sign-out goes on to the Partner
     // │ Bank, which asks "Sign out?" itself when it gets no id_token_hint. Either way the next
-    // │ person at the desk starts from nothing.
+    // │ person at the desk starts from nothing: the window then opens "My Partner Bank" again,
+    // │ which - with no session left anywhere - shows the Partner Bank's sign-in page.
     // └──────────────────────────────────────────────────────────────────────────────────────
     public async Task<IActionResult> OnPostAsync()
     {
         if (User.Identity?.IsAuthenticated == true && !await antiforgery.IsRequestValidAsync(HttpContext))
             return BadRequest();
 
-        return SignOut(new AuthenticationProperties { RedirectUri = "/SignedOut" },
+        return SignOut(new AuthenticationProperties { RedirectUri = "/My" },
             CookieAuthenticationDefaults.AuthenticationScheme, OpenIdConnectDefaults.AuthenticationScheme);
     }
 

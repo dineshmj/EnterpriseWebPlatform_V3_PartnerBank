@@ -456,7 +456,7 @@ var signOut = await browser.PostAsync($"{WindowOrigin}/SignOut", new FormUrlEnco
     ["__RequestVerificationToken"] = Hidden(myRaw, "__RequestVerificationToken")
 }));
 var (_, signedOutUrl) = await Navigate(signOut, $"{WindowOrigin}/SignOut");
-Check("Sign out in the window ends its session AND the Partner Bank's - and says so", signedOutUrl == $"{WindowOrigin}/SignedOut", signedOutUrl);
+Check("Sign out in the window ends its session AND the Partner Bank's - and shows the Partner Bank's sign-in page", signedOutUrl.Contains("/Account/Login"), signedOutUrl.Split('?')[0]);
 
 var (_, afterSignOutUrl) = await Navigate(await browser.GetAsync(myUrl), myUrl);
 Check("After sign-out, My Partner Bank asks for a password again", afterSignOutUrl.Contains("/Account/Login"), afterSignOutUrl.Split('?')[0]);

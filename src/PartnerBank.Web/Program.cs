@@ -66,10 +66,10 @@ builder.Services
         // │ max_age: a Partner Bank sign-in counts only if it is at most 2 minutes old. Right
         // │ after the customer approved a request from their bank, the window opens without a
         // │ second password; later - perhaps another person at the same desk - they must sign in
-        // │ again. Sign-out returns to the window's home page.
+        // │ again. After sign-out the window asks for a sign-in again (its "My Partner Bank").
         // └──────────────────────────────────────────────────────────────────────────────────────
         options.MaxAge = TimeSpan.FromMinutes(2);
-        options.SignedOutRedirectUri = "/SignedOut";
+        options.SignedOutRedirectUri = "/My";
     });
 
 builder.Services.AddHttpContextAccessor();
