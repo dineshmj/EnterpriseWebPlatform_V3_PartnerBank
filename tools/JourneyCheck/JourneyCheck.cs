@@ -439,6 +439,18 @@ Check("My Partner Bank shows the customer's own grams, applications and activity
 Console.WriteLine();
 Console.WriteLine("6. A shared desk: signing out leaves nothing for the next person");
 
+// A desk where the window's session has ALREADY ended (10 idle minutes): signing out must still work.
+using (var expiredDesk = Client(null, new CookieContainer()))
+{
+    var late = await expiredDesk.PostAsync($"{WindowOrigin}/SignOut", new FormUrlEncodedContent(new Dictionary<string, string>
+    {
+        ["__RequestVerificationToken"] = Hidden(myRaw, "__RequestVerificationToken")
+    }));
+    var lateLocation = late.Headers.Location?.ToString() ?? string.Empty;
+    Check("Sign out after the window's session has expired goes on to the Partner Bank's sign-out (no error page)",
+        (int)late.StatusCode is >= 300 and < 400 && lateLocation.Contains("/connect/endsession"), $"HTTP {(int)late.StatusCode}");
+}
+
 var signOut = await browser.PostAsync($"{WindowOrigin}/SignOut", new FormUrlEncodedContent(new Dictionary<string, string>
 {
     ["__RequestVerificationToken"] = Hidden(myRaw, "__RequestVerificationToken")

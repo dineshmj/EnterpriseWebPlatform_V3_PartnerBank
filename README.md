@@ -113,7 +113,7 @@ Both tools are single-file .NET 10 apps acting from EWP's side (EWP's client cer
 
 ```powershell
 dotnet run tools\HandshakeCheck\HandshakeCheck.cs -- 192.168.1.12   # the authorization server: 22 checks
-dotnet run tools\JourneyCheck\JourneyCheck.cs -- 192.168.1.12       # the whole journey, as EWP AND as the customer's browser: 43 checks
+dotnet run tools\JourneyCheck\JourneyCheck.cs -- 192.168.1.12       # the whole journey, as EWP AND as the customer's browser: 44 checks
 ```
 
 Leave out the address for the Partner Bank on the same machine. The handshake check prints a link for a browser test; the browser needs `ewp-trust-root.cer` in "Trusted Root Certification Authorities" to open it without a warning.
@@ -169,7 +169,7 @@ Customer accounts live in the authorization server's own database, `src\PartnerB
 | 20 | **No data, no decisions**: the window calls the internal API with the customer's own access token, kept in its server-side session cookie - never in the browser | `Services/PartnerApi.cs` |
 | 21 | **Single sign-on as a confidential client** (secret, code + PKCE, PAR) asking for the customer scope | `Program.cs` |
 | 21a | **"My Partner Bank" shows only the signed-in customer's own** grams, applications and activity: the internal API takes the customer from the token, never from the request; times shown in Sydney time | `Pages/My.cshtml.cs`, `PartnerBank.Api/Api/InternalApi.cs` |
-| 21b | **No silent reuse of an old sign-in, and a real sign-out**: the window accepts a Partner Bank sign-in only if it is at most 2 minutes old (`max_age`), so right after a consent there is no second password but later - perhaps another person at the desk - there is; "Sign out" (POST, anti-forgery) ends the window's session AND the Partner Bank's | `Program.cs`, `Pages/SignOut.cshtml.cs` |
+| 21b | **No silent reuse of an old sign-in, and a real sign-out**: the window accepts a Partner Bank sign-in only if it is at most 2 minutes old (`max_age`), so right after a consent there is no second password but later - perhaps another person at the desk - there is; "Sign out" (POST, anti-forgery while the window still has a session) ends the window's session AND the Partner Bank's - also after the window's session has already expired (the Partner Bank then asks before signing out) | `Program.cs`, `Pages/SignOut.cshtml.cs` |
 | 22 | **The session cookie** is `__Host-`, HttpOnly, Secure, SameSite=Lax, 10 minutes sliding; anti-forgery tokens on every form; one message for every link failure | `Program.cs`, `Pages/` |
 
 **Not done in this PoC** (a production partner would): certificate revocation checks (the PoC's root publishes no revocation list), address-based sign-in throttling, a real SMS / push provider for one-time codes, persistent grant and key stores (in memory / local files), a real credit decision, a Duende licence, and consent screens.
