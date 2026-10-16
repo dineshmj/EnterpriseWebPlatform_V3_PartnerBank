@@ -44,6 +44,7 @@ Scope: the Partner Bank's three deployables and their two boundaries - EWP's ser
 | T17 | EWP (or a stolen token) places more orders, or different ones, than the customer approved | an order takes everything from the token's consented detail; one order per authorisation (unique token ID); a token approved for another purpose is refused | 18a |
 | T18 | A payment advice for the wrong amount, a replayed advice, or a cancel after allocation | exact amount only; idempotent by network reference; allocated gold cannot be cancelled; only the referring organisation's own orders | 18b |
 | T19 | Holdings read without the customer's agreement | only with a consented `holdings_view` token, only the customer's own | 18c |
+| T20 | One customer sees another's gold or activity in the Partner's window | the internal API reads the customer from the window's token (`sub`), never from the request | 16, 21a |
 
 ## 4. Residual risks (accepted for the PoC)
 

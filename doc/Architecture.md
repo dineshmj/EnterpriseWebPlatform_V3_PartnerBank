@@ -68,7 +68,9 @@ Both trust **one root** (`EWP Local Trust Root (DEVELOPMENT ONLY)`), created by 
 3. EWP pays the Partner Bank, then sends the payment advice (network reference, exact amount): the grams are allocated; the activity ledger records every step.
 4. With a consented `holdings_view`, EWP reads the customer's grams, today's value and activity.
 
-**Next**: the customer's own window, "My Partner Bank" (holdings and activity); a first-time customer's registration (pre-filled from EWP's verified data, with a one-time code); then EWP's side - "Partner Products → Digital Gold", its Temporal workflow and the payment through EWP's Payments saga.
+**The customer's own window**: "My Partner Bank" (`/My` on the window) shows the signed-in customer's grams, their value today, their applications and their activity, read through the internal API with the customer's own token - EWP is not involved.
+
+**Next**: a first-time customer's registration (pre-filled from EWP's verified data, with a one-time code); then EWP's side - "Partner Products → Digital Gold", its Temporal workflow and the payment through EWP's Payments saga.
 
 ## 5. Ports
 

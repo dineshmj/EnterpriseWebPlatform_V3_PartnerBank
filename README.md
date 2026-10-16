@@ -25,6 +25,9 @@ Digital Gold (the customer approves an AUD amount; the grams are locked when the
    EWP pays the Partner Bank (EWP's Payments) ──► POST /api/gold-orders/{number}/payment-advice  ──► ALLOCATED
    (or POST /api/gold-orders/{number}/cancel when the payment failed)
    EWP's server ──mTLS + a holdings-view token──► GET /api/holdings  ──► grams, today's value, activity
+
+6. The customer, any time, in the Partner's own window: https://partner-products.ewp.home.arpa:47402/My
+   ("My Partner Bank" - grams, today's value, applications, activity; read with the customer's own token)
 ```
 
 | Deployable | Ports | What |
@@ -109,7 +112,7 @@ Both tools are single-file .NET 10 apps acting from EWP's side (EWP's client cer
 
 ```powershell
 dotnet run tools\HandshakeCheck\HandshakeCheck.cs -- 192.168.1.12   # the authorization server: 21 checks
-dotnet run tools\JourneyCheck\JourneyCheck.cs -- 192.168.1.12       # the whole journey, as EWP AND as the customer's browser: 31 checks
+dotnet run tools\JourneyCheck\JourneyCheck.cs -- 192.168.1.12       # the whole journey, as EWP AND as the customer's browser: 32 checks
 ```
 
 Leave out the address for the Partner Bank on the same machine. The handshake check prints a link for a browser test; the browser needs `ewp-trust-root.cer` in "Trusted Root Certification Authorities" to open it without a warning.
@@ -161,6 +164,7 @@ Demo customers (Development only): `alex.partner` and `sam.partner` - see the au
 |---|---|---|
 | 20 | **No data, no decisions**: the window calls the internal API with the customer's own access token, kept in its server-side session cookie - never in the browser | `Services/PartnerApi.cs` |
 | 21 | **Single sign-on as a confidential client** (secret, code + PKCE, PAR) asking for the customer scope | `Program.cs` |
+| 21a | **"My Partner Bank" shows only the signed-in customer's own** grams, applications and activity: the internal API takes the customer from the token, never from the request; times shown in Sydney time | `Pages/My.cshtml.cs`, `PartnerBank.Api/Api/InternalApi.cs` |
 | 22 | **The session cookie** is `__Host-`, HttpOnly, Secure, SameSite=Lax, 20 minutes sliding; anti-forgery tokens on every form; one message for every link failure | `Program.cs`, `Pages/` |
 
 **Not done in this PoC** (a production partner would): certificate revocation checks (the PoC's root publishes no revocation list), sign-in throttling and lockout, real customer accounts (demo users only), persistent grant and key stores (in memory / local files), a real credit decision, a Duende licence, and consent screens.

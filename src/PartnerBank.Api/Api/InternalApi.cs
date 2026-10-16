@@ -5,6 +5,7 @@ using Microsoft.EntityFrameworkCore;
 
 using PartnerBank.Api.Configuration;
 using PartnerBank.Api.Data;
+using PartnerBank.Api.Gold;
 
 namespace PartnerBank.Api.Api;
 
@@ -31,6 +32,8 @@ public static class InternalApi
         api.MapGet("/handoffs/{id}", HandoffAsync);
         api.MapPost("/applications", ApplyAsync);
         api.MapGet("/applications/{number}", ApplicationAsync);
+        api.MapGet("/applications", MyApplicationsAsync);
+        api.MapGet("/holdings", MyHoldingsAsync);
     }
 
     // ┌─ SEC ────────────────────────────────────────────────────────────────────────────────
@@ -101,6 +104,26 @@ public static class InternalApi
         var product = await db.Products.FindAsync([application.ProductCode], cancellationToken);
         return Results.Ok(new ApplicationView(application.Number, application.ProductCode, product?.Name ?? application.ProductCode, application.Status, application.SubmittedAt));
     }
+
+    // ┌─ SEC ────────────────────────────────────────────────────────────────────────────────
+    // │ "My Partner Bank": the signed-in customer's OWN applications and gold - the subject
+    // │ comes from the customer's token, so no one can ask for someone else's.
+    // └──────────────────────────────────────────────────────────────────────────────────────
+    private static async Task<IResult> MyApplicationsAsync(ClaimsPrincipal customer, PartnerDbContext db, TimeProvider clock, CancellationToken cancellationToken)
+    {
+        var subject = Subject(customer);
+        var applications = await db.Applications.Where(a => a.CustomerSubject == subject).ToListAsync(cancellationToken);
+        var now = clock.GetUtcNow();
+        if (applications.Count(a => a.DecideIfDue(now)) > 0)
+            await db.SaveChangesAsync(cancellationToken);
+        var names = await db.Products.AsNoTracking().ToDictionaryAsync(p => p.Code, p => p.Name, cancellationToken);
+        return Results.Ok(applications
+            .OrderByDescending(a => a.SubmittedAt)
+            .Select(a => new ApplicationView(a.Number, a.ProductCode, names.GetValueOrDefault(a.ProductCode, a.ProductCode), a.Status, a.SubmittedAt)));
+    }
+
+    private static async Task<IResult> MyHoldingsAsync(ClaimsPrincipal customer, GoldDesk desk, CancellationToken cancellationToken) =>
+        Results.Ok(await desk.HoldingAsync(Subject(customer)!, cancellationToken));
 
     // ┌─ SEC ────────────────────────────────────────────────────────────────────────────────
     // │ Only an opened link, for THIS customer, not yet used for an application, and within

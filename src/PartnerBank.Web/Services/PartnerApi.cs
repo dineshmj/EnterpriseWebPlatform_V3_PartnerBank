@@ -9,6 +9,10 @@ public sealed record ProductView(string Code, string Name, string Summary, strin
 
 public sealed record ApplicationView(string Number, string ProductCode, string ProductName, string Status, DateTimeOffset SubmittedAt);
 
+public sealed record ActivityView(DateTimeOffset At, string Text, string? Reference);
+
+public sealed record HoldingsView(decimal Grams, decimal PricePerGram, decimal ValueAud, DateTimeOffset PricedAt, IReadOnlyList<ActivityView> Activity);
+
 /// <summary>
 /// The Partner Bank API's internal port, called with the signed-in customer's OWN access token: the
 /// window holds no data and asserts nothing - the API decides everything from the token.
@@ -34,6 +38,16 @@ public sealed class PartnerApi(HttpClient http, IHttpContextAccessor accessor)
         var response = await SendAsync(HttpMethod.Post, "internal/applications", JsonContent.Create(new { handoff, productCode }), cancellationToken);
         return response.IsSuccessStatusCode ? await response.Content.ReadFromJsonAsync<ApplicationView>(cancellationToken) : null;
     }
+
+    /// <summary>The signed-in customer's gold, today's value and activity.</summary>
+    public async Task<HoldingsView?> HoldingsAsync(CancellationToken cancellationToken) =>
+        await (await SendAsync(HttpMethod.Get, "internal/holdings", null, cancellationToken))
+            .EnsureSuccessStatusCode().Content.ReadFromJsonAsync<HoldingsView>(cancellationToken);
+
+    /// <summary>The signed-in customer's applications, newest first.</summary>
+    public async Task<IReadOnlyList<ApplicationView>> MyApplicationsAsync(CancellationToken cancellationToken) =>
+        await (await SendAsync(HttpMethod.Get, "internal/applications", null, cancellationToken))
+            .EnsureSuccessStatusCode().Content.ReadFromJsonAsync<List<ApplicationView>>(cancellationToken) ?? [];
 
     public async Task<ApplicationView?> ApplicationAsync(string number, CancellationToken cancellationToken)
     {

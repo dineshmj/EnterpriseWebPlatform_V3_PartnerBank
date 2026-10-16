@@ -1,0 +1,56 @@
+@page
+@model PartnerBank.Web.Pages.MyModel
+@{
+    ViewData["Title"] = "My Partner Bank";
+}
+<section class="card wide">
+    <h1>My Partner Bank</h1>
+    <p class="lead">Hello @User.Identity?.Name</p>
+
+    <h2>Digital Gold</h2>
+    @if (Model.Holdings is null || Model.Holdings.Grams == 0)
+    {
+        <p>You hold no gold with us yet.</p>
+    }
+    else
+    {
+        <div class="holding">
+            <span class="grams">@Model.Holdings.Grams.ToString("0.0000") g</span>
+            <span class="value">worth AUD @MyModel.Money(Model.Holdings.ValueAud) today</span>
+        </div>
+        <p class="muted">At AUD @MyModel.Money(Model.Holdings.PricePerGram) per gram, @MyModel.When(Model.Holdings.PricedAt). Your grams stay the same; only their value moves with the price.</p>
+    }
+
+    @if (Model.Applications.Count > 0)
+    {
+        <h2>Applications</h2>
+        <ul class="list">
+            @foreach (var application in Model.Applications)
+            {
+                <li>
+                    <strong>@application.ProductName</strong> - @application.Number
+                    <span class="status">@application.Status.ToLowerInvariant()</span>
+                    <span class="muted">@MyModel.When(application.SubmittedAt)</span>
+                </li>
+            }
+        </ul>
+    }
+
+    <h2>Activity</h2>
+    @if (Model.Holdings is null || Model.Holdings.Activity.Count == 0)
+    {
+        <p>Nothing yet.</p>
+    }
+    else
+    {
+        <ul class="list activity">
+            @foreach (var entry in Model.Holdings.Activity)
+            {
+                <li>
+                    <span class="muted">@MyModel.When(entry.At)</span>
+                    <span>@entry.Text</span>
+                </li>
+            }
+        </ul>
+    }
+</section>

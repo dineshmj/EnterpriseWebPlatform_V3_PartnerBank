@@ -11,7 +11,8 @@
 // 3. The customer opens the window (single sign-on), chooses a product and applies.
 // 4. EWP reads the application's status through the API.
 // 5. Digital Gold: the customer approves AUD 10.00; EWP places the order (grams locked), sends the
-//    payment advice; the grams are allocated; the customer's holdings show them.
+//    payment advice; the grams are allocated; the customer's holdings show them - to EWP (with the
+//    customer's approval) and in the customer's own window, "My Partner Bank".
 //
 // Needs %USERPROFILE%\.ewp-pki from EWP's ps\pki\New-EwpLocalPki.ps1. Every *.ewp.home.arpa name is
 // connected to the given address directly (no hosts-file entry needed); only the PoC's root is trusted.
@@ -401,6 +402,14 @@ Check("With an approved holdings view: the grams and the activity", holdingsCons
 
 var holdingsWithPurchase = await ewp.SendAsync(ApiRequest(HttpMethod.Get, "/api/holdings", goldToken));
 Check("A purchase token cannot read holdings", holdingsWithPurchase.StatusCode == HttpStatusCode.Forbidden, $"HTTP {(int)holdingsWithPurchase.StatusCode}");
+
+// The customer's own window: "My Partner Bank" - the same grams and activity, no EWP involved.
+var myUrl = $"{WindowOrigin}/My";
+var (myPage, _) = await Navigate(await browser.GetAsync(myUrl), myUrl);
+var myHtml = WebUtility.HtmlDecode(await myPage.Content.ReadAsStringAsync());
+Check("My Partner Bank shows the customer's own grams, applications and activity",
+    myPage.IsSuccessStatusCode && myHtml.Contains($"{heldGrams:0.0000} g") && myHtml.Contains(orderNumber!) && myHtml.Contains("Partner Term Deposit, 12 months"),
+    $"{heldGrams:0.0000} g, order {orderNumber}");
 
 Console.WriteLine();
 Console.WriteLine(failures == 0 ? "All checks passed." : $"{failures} check(s) failed.");
