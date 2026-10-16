@@ -1,0 +1,98 @@
+using System.Security.Claims;
+
+using Duende.IdentityModel;
+using Duende.IdentityServer;
+using Duende.IdentityServer.Models;
+using Duende.IdentityServer.Test;
+
+namespace PartnerBank.AuthorizationServer.Configuration;
+
+/// <summary>What the Partner Bank's authorization server knows: its scopes, its one client (EWP) and its demo customers.</summary>
+public static class Config
+{
+    public const string ProductsRead = "partner.products.read";
+    public const string ApplicationsWrite = "partner.applications.write";
+
+    public static IEnumerable<IdentityResource> IdentityResources =>
+    [
+        new IdentityResources.OpenId(),
+        new IdentityResources.Profile()
+    ];
+
+    public static IEnumerable<ApiScope> ApiScopes =>
+    [
+        new(ProductsRead, "See the Partner Bank's products"),
+        new(ApplicationsWrite, "Apply for a Partner Bank product")
+    ];
+
+    public static IEnumerable<ApiResource> ApiResources =>
+    [
+        new("partner-api", "Partner Bank API") { Scopes = { ProductsRead, ApplicationsWrite } }
+    ];
+
+    public static IEnumerable<Client> Clients(EwpClientOptions ewp)
+    {
+        if (string.IsNullOrWhiteSpace(ewp.ClientId) || string.IsNullOrWhiteSpace(ewp.CertificateSubject))
+            throw new InvalidOperationException("PartnerBank:EwpClient:ClientId and CertificateSubject are required.");
+
+        yield return new Client
+        {
+            ClientId = ewp.ClientId,
+            ClientName = "Four Walls Inc. (EWP)",
+
+            // ┌─ SEC ────────────────────────────────────────────────────────────────────────────────
+            // │ RFC 8705 tls_client_auth: EWP has NO shared secret. It proves who it is with its
+            // │ client certificate in the TLS handshake; the subject must match exactly, and the
+            // │ certificate handler has already checked that it chains to the PoC's trust root and
+            // │ is meant for client authentication. A renewed certificate (same subject) still works.
+            // └──────────────────────────────────────────────────────────────────────────────────────
+            ClientSecrets =
+            {
+                new Secret(ewp.CertificateSubject, "EWP client certificate (tls_client_auth)")
+                {
+                    Type = IdentityServerConstants.SecretTypes.X509CertificateName
+                }
+            },
+
+            // Code: a person (our customer) at the Partner's window. Client credentials: EWP's
+            // own calls afterwards, e.g. an application's status.
+            AllowedGrantTypes = GrantTypes.CodeAndClientCredentials,
+
+            // ┌─ SEC ────────────────────────────────────────────────────────────────────────────────
+            // │ FAPI 2.0 style: the authorization request is PUSHED first (server to server, over
+            // │ mutual TLS) - the browser carries only a one-time request_uri, so nothing in the
+            // │ request can be read or changed on the way. PKCE (S256) on top.
+            // └──────────────────────────────────────────────────────────────────────────────────────
+            RequirePushedAuthorization = true,
+            RequirePkce = true,
+            AllowPlainTextPkce = false,
+
+            RedirectUris = ewp.RedirectUris,
+            AllowedScopes =
+            {
+                IdentityServerConstants.StandardScopes.OpenId,
+                IdentityServerConstants.StandardScopes.Profile,
+                ProductsRead,
+                ApplicationsWrite
+            },
+
+            // EWP's customers came through a trusted organisation: no separate consent screen in the PoC.
+            RequireConsent = false,
+            AllowOfflineAccess = false,
+
+            // Short-lived: a code for one minute, a token for five.
+            AuthorizationCodeLifetime = 60,
+            AccessTokenLifetime = 300,
+            AccessTokenType = AccessTokenType.Jwt
+        };
+    }
+
+    public static List<TestUser> DemoCustomers(IEnumerable<DemoCustomerOptions> customers) =>
+        customers.Select(c => new TestUser
+        {
+            SubjectId = c.SubjectId,
+            Username = c.Username,
+            Password = c.Password,
+            Claims = { new Claim(JwtClaimTypes.Name, c.Name) }
+        }).ToList();
+}

@@ -1,0 +1,13 @@
+<Project>
+  <!--
+    Applies to every C# project under this folder.
+
+    Debug builds use WORKSTATION garbage collection: server GC keeps one heap per CPU core and memory
+    in reserve - wasteful on the home PC that also runs Temporal and WireMock. Release builds keep the
+    defaults.
+  -->
+  <PropertyGroup Condition="'$(Configuration)' == 'Debug'">
+    <ServerGarbageCollection>false</ServerGarbageCollection>
+    <ConcurrentGarbageCollection>false</ConcurrentGarbageCollection>
+  </PropertyGroup>
+</Project>

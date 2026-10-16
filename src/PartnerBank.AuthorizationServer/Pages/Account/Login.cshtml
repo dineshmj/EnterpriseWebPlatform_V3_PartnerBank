@@ -1,0 +1,24 @@
+@page
+@model PartnerBank.AuthorizationServer.Pages.Account.LoginModel
+@{
+    ViewData["Title"] = "Sign in";
+}
+<section class="card">
+    <h1>Sign in to Partner Bank</h1>
+    @if (Model.ClientName is not null)
+    {
+        <p class="lead">You came from <strong>@Model.ClientName</strong>. Sign in with your Partner Bank details to see our products.</p>
+    }
+    @if (Model.ErrorMessage is not null)
+    {
+        <p class="error" role="alert">@Model.ErrorMessage</p>
+    }
+    <form method="post">
+        <input type="hidden" asp-for="Input.ReturnUrl" />
+        <label asp-for="Input.Username">Username</label>
+        <input asp-for="Input.Username" autocomplete="username" autofocus />
+        <label asp-for="Input.Password">Password</label>
+        <input asp-for="Input.Password" type="password" autocomplete="current-password" />
+        <button type="submit">Sign in</button>
+    </form>
+</section>

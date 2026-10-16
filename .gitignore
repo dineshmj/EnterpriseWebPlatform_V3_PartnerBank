@@ -1,0 +1,32 @@
+################################################################################
+# EnterpriseWebPlatform V3 - Partner Bank
+################################################################################
+
+# Visual Studio / VS Code
+.vs/
+*.suo
+*.user
+*.userosscache
+
+# .NET build output
+**/bin/
+**/obj/
+
+# Duende IdentityServer: automatically managed signing keys and the developer key
+**/keys/
+**/tempkey.jwk
+
+# Certificates and their passwords never live in the repository
+# (they are in %USERPROFILE%\.ewp-pki - see README.md)
+*.pfx
+*.pfx.password
+*.key
+
+# Local data
+*.db
+*.db-shm
+*.db-wal
+
+# Node.js (later tiers)
+**/node_modules/
+**/.next/

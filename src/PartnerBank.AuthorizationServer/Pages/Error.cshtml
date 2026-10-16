@@ -1,0 +1,17 @@
+@page
+@model PartnerBank.AuthorizationServer.Pages.ErrorModel
+@{
+    ViewData["Title"] = "Something went wrong";
+}
+<section class="card">
+    <h1>Something went wrong</h1>
+    <p class="error" role="alert">@(Model.Error ?? "The request could not be completed.")</p>
+    @if (Model.Description is not null)
+    {
+        <p>@Model.Description</p>
+    }
+    @if (Model.RequestId is not null)
+    {
+        <p class="muted">Request ID: @Model.RequestId</p>
+    }
+</section>
