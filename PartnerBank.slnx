@@ -2,8 +2,11 @@
   <Folder Name="/AuthorizationServer/">
     <Project Path="src/PartnerBank.AuthorizationServer/PartnerBank.AuthorizationServer.csproj" />
   </Folder>
-  <Folder Name="/Products/">
-    <Project Path="src/PartnerBank.Products/PartnerBank.Products.csproj" />
+  <Folder Name="/Api/">
+    <Project Path="src/PartnerBank.Api/PartnerBank.Api.csproj" />
+  </Folder>
+  <Folder Name="/Web/">
+    <Project Path="src/PartnerBank.Web/PartnerBank.Web.csproj" />
   </Folder>
   <Folder Name="/Shared/">
     <Project Path="src/PartnerBank.Security/PartnerBank.Security.csproj" />

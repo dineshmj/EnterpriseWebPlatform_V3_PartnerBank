@@ -1,5 +1,5 @@
 @page
-@model PartnerBank.Products.Pages.AppliedModel
+@model PartnerBank.Web.Pages.AppliedModel
 @{
     ViewData["Title"] = "Application received";
 }
@@ -11,7 +11,7 @@
     else
     {
         <h1>Thank you - we have your application</h1>
-        <p>Application <strong>@Model.Application.Number</strong> for <strong>@Model.ProductName</strong> is with us. Your bank will show you how it goes.</p>
+        <p>Application <strong>@Model.Application.Number</strong> for <strong>@Model.Application.ProductName</strong> is with us. Your bank will show you how it goes.</p>
         <p class="muted">You can close this window now.</p>
     }
 </section>

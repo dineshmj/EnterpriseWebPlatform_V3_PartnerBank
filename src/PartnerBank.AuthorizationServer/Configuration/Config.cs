@@ -12,6 +12,7 @@ public static class Config
 {
     public const string ProductsRead = "partner.products.read";
     public const string ApplicationsWrite = "partner.applications.write";
+    public const string Customer = "partner.customer";
 
     public static IEnumerable<IdentityResource> IdentityResources =>
     [
@@ -22,12 +23,13 @@ public static class Config
     public static IEnumerable<ApiScope> ApiScopes =>
     [
         new(ProductsRead, "See the Partner Bank's products"),
-        new(ApplicationsWrite, "Apply for a Partner Bank product")
+        new(ApplicationsWrite, "Apply for a Partner Bank product"),
+        new(Customer, "The signed-in customer, through the Partner's own window")
     ];
 
     public static IEnumerable<ApiResource> ApiResources =>
     [
-        new("partner-api", "Partner Bank API") { Scopes = { ProductsRead, ApplicationsWrite } }
+        new("partner-api", "Partner Bank API") { Scopes = { ProductsRead, ApplicationsWrite, Customer } }
     ];
 
     public static IEnumerable<Client> Clients(EwpClientOptions ewp, ProductsWindowClientOptions productsWindow)
@@ -53,10 +55,13 @@ public static class Config
             AllowPlainTextPkce = false,
             RedirectUris = productsWindow.RedirectUris,
             PostLogoutRedirectUris = productsWindow.PostLogoutRedirectUris,
-            AllowedScopes = { IdentityServerConstants.StandardScopes.OpenId, IdentityServerConstants.StandardScopes.Profile },
+            AllowedScopes = { IdentityServerConstants.StandardScopes.OpenId, IdentityServerConstants.StandardScopes.Profile, Customer },
             RequireConsent = false,
             AllowOfflineAccess = false,
-            AuthorizationCodeLifetime = 60
+            AuthorizationCodeLifetime = 60,
+
+            // The customer's token for the internal API lives as long as the window's session (20 minutes).
+            AccessTokenLifetime = 1200
         };
 
         if (string.IsNullOrWhiteSpace(ewp.ClientId) || string.IsNullOrWhiteSpace(ewp.CertificateSubject))

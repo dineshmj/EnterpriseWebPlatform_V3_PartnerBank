@@ -5,7 +5,7 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 
 using PartnerBank.Security;
 
-namespace PartnerBank.Products.Security;
+namespace PartnerBank.Api.Security;
 
 /// <summary>RFC 8705 certificate-bound access tokens, checked on every API call.</summary>
 public static class BoundTokens

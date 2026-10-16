@@ -178,6 +178,15 @@ Check("The same token over a connection with ANOTHER certificate: refused", othe
 var publicPort = await browser.GetAsync($"{WindowOrigin}/api/products");
 Check("The API is not served on the window's public port", publicPort.StatusCode == HttpStatusCode.NotFound, $"HTTP {(int)publicPort.StatusCode}");
 
+// The window's internal API: localhost only (unreachable from another machine) and only for the
+// window's own client - EWP's customer token must not work there either.
+var internalRequest = new HttpRequestMessage(HttpMethod.Get, "https://partner-api.ewp.home.arpa:47404/internal/products");
+internalRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", customerToken);
+string internalResult;
+try { internalResult = $"HTTP {(int)(await browser.SendAsync(internalRequest)).StatusCode}"; }
+catch (HttpRequestException) { internalResult = "not reachable"; }
+Check("EWP's token on the window's internal API: refused (or not reachable)", internalResult is "HTTP 403" or "not reachable", internalResult);
+
 var machineTokenResponse = await ewp.PostAsync(tokenEndpoint, new FormUrlEncodedContent(new Dictionary<string, string>
 {
     ["grant_type"] = "client_credentials",

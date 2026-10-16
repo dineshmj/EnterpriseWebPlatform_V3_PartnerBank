@@ -1,9 +1,9 @@
 using Microsoft.EntityFrameworkCore;
 
-namespace PartnerBank.Products.Data;
+namespace PartnerBank.Api.Data;
 
-/// <summary>The Partner Bank's products, the one-time window links EWP asked for, and the applications made through them.</summary>
-public sealed class ProductsDbContext(DbContextOptions<ProductsDbContext> options) : DbContext(options)
+/// <summary>The Partner Bank's own data: its products, the one-time window links EWP asked for, and the applications made through them.</summary>
+public sealed class PartnerDbContext(DbContextOptions<PartnerDbContext> options) : DbContext(options)
 {
     public DbSet<Product> Products => Set<Product>();
 
@@ -18,8 +18,7 @@ public sealed class ProductsDbContext(DbContextOptions<ProductsDbContext> option
             product.HasKey(p => p.Code);
             product.HasData(
                 new Product { Code = "PB-TD-12", Name = "Partner Term Deposit, 12 months", Summary = "4.60% p.a. fixed for 12 months, from AUD 5,000.", Kind = "Deposit" },
-                new Product { Code = "PB-SAVER", Name = "Partner Bonus Saver", Summary = "Up to 5.10% p.a. when you add AUD 200 each month.", Kind = "Deposit" },
-                new Product { Code = "PB-HOME-VAR", Name = "Partner Home Loan, variable", Summary = "6.09% p.a. variable for owner-occupiers, offset account included.", Kind = "Lending" });
+                new Product { Code = "PB-SAVER", Name = "Partner Bonus Saver", Summary = "Up to 5.10% p.a. when you add AUD 200 each month.", Kind = "Deposit" });
         });
 
         model.Entity<Handoff>(handoff =>
