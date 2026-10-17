@@ -81,6 +81,7 @@ The simplest way, on either machine - it builds once, then opens one window per 
 .\ps\Start-PartnerBank.ps1          # on the laptop: localhost only
 .\ps\Start-PartnerBank.ps1 -Lan     # on the home PC: reachable from the home network
 .\ps\Start-PartnerBank.ps1 -Stop    # stop all three
+.\ps\Reset-PartnerBank.ps1          # erase the data (1) or the data and the customers' sign-in accounts (2); asks first
 ```
 
 By hand, or to debug one of them:
