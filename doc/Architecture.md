@@ -83,7 +83,9 @@ Both trust **one root** (`EWP Local Trust Root (DEVELOPMENT ONLY)`), created by 
 2. Any time later, Camilla signs a transfer authorization slip (amount, her mobile number). EWP sends a SIGNED `digital_gold_purchase` instruction: the Partner Bank checks the account is EWP's customer's, the slip's mobile is the account's and the slip is today's and unused; it places the order (grams locked 5 minutes) and records EWP's commission.
 3. EWP pays and sends the payment advice: the grams are allocated. EWP reads the holding (grams, today's value, activity) from the Partner Bank - never a copy of its own.
 
-**Next**: EWP's side - "Partner Products → Digital Gold", its Temporal workflow and the payment through EWP's Payments saga.
+**EWP's side** (EWP repository, `src/Microservices/PartnerProducts`): Sophie records Form VII at the counter and sends it; EWP's Partner Products API calls this API over mutual TLS with its bound token and a signed instruction, and reads the holding back. Verified with Camilla on 2026-10-17 (account opened from EWP's screen).
+
+**Next**: the purchase from a transfer slip - the order, the payment through EWP's Payments saga orchestrated by a Temporal workflow, and the payment advice.
 
 ## 5. Ports
 
