@@ -105,3 +105,6 @@ h2 { margin: 24px 0 8px; font-size: 15px; color: var(--pb-muted); font-weight: n
 .sign-out { display: flex; align-items: center; gap: 10px; margin-left: 24px; font-size: 14px; }
 .sign-out button { margin-top: 0; padding: 6px 12px; font-size: 14px; background: transparent; border: 1px solid #fff; }
 .sign-out button:hover { background: rgba(255, 255, 255, 0.15); }
+
+/* A distributor's staff view: who is looking, read-only. */
+.staff-banner { background: #fff7e0; border: 1px solid #e8c766; border-radius: 6px; padding: 8px 12px; font-size: 13px; }

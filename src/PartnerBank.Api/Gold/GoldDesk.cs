@@ -299,7 +299,8 @@ public sealed class GoldDesk(PartnerDbContext db, TimeProvider clock, ApiOptions
     private static string Money(decimal amount) => amount.ToString("N2", Australia);
 
     /// <summary>The referring organisation as the customer knows it (e.g. "Four Walls"), not its technical client ID.</summary>
-    private string Name(string referrerClientId) => referrerClientId == settings.EwpClientId ? settings.EwpDisplayName : referrerClientId;
+    /// <summary>The distributor's display name (EWP's client ID -> "Four Walls Bank").</summary>
+    public string Name(string referrerClientId) => referrerClientId == settings.EwpClientId ? settings.EwpDisplayName : referrerClientId;
 
     // ┌─ ARCH ───────────────────────────────────────────────────────────────────────────────
     // │ Times are STORED in UTC; a time written into a customer's activity sentence is in

@@ -52,6 +52,7 @@ Scope: the Partner Bank's three deployables and their two boundaries - EWP's ser
 | T25 | A replayed instruction or a reused paper slip buys gold twice | once-only by instruction ID, slip number and form number, enforced by unique indexes; the same instruction returns the same result | 18f |
 | T26 | EWP (or someone using EWP's connection) buys for a customer who never signed, or for another distributor's customer | only accounts EWP introduced (404 otherwise); the slip's mobile must match the account's; the Partner Bank tells the customer of every account and order by SMS itself ("Not you? Call us"); the scan's hash is part of the signed instruction - EWP must be able to produce the form | 18e, 18g |
 | T27 | A customer-consent token is used to act as a distributor, or EWP's distribution token without a signed instruction | distribution needs EWP's own token with the distribution scope AND a signed instruction in the body on every call | 18h |
+| T28 | A staff-view address is copied, shared or replayed; a staff member views an account they should not; a view asks for more than one account | the request_uri is random (256 bits), lives 60 seconds and opens once; each signed instruction pushes once; only accounts EWP introduced, for the named customer; the instruction allows one account and nothing else; the page is read-only, no-store, no-referrer, and names the staff member; every push and opening is logged | 18i, 22a |
 
 ## 4. Residual risks (accepted for the PoC)
 
@@ -66,3 +67,4 @@ Scope: the Partner Bank's three deployables and their two boundaries - EWP's ser
 | R7 | ~~EWP's pushed requests are not signed~~ - **closed 2026-10-16** by message signing (decision D4, controls 12a-12c) | - |
 | R8 | EWP's request-signing key is in a file on the laptop | an HSM or a key-management service; signing done by the service, the key never exported |
 | R9 | The Partner Bank cannot see the customer sign Form VII or a slip: it relies on EWP (the distribution agreement, the scan's hash, after-the-fact SMS notices) | the agreement's audit rights (sample checks of scans against hashes), a cooling-off period, notices through the Partner Bank's own app |
+| R10 | Staff views trust EWP's signed request for WHO is looking: the Partner Bank cannot authenticate EWP's staff itself; pending views and the view log are in memory / the API's log only (a restart loses unopened views) | single sign-on of distributor staff (federation with EWP's IDP), views and their log in the database, per-staff view limits |

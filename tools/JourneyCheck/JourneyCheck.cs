@@ -21,6 +21,9 @@
 //    EWP's counter, never signs in here): EWP's own token, SIGNED instructions - Form VII opens a
 //    Digital Gold account, a transfer authorization slip buys gold; refusals for unsigned, altered,
 //    expired, other-key, unknown-field, reused-slip, wrong-mobile and old-slip instructions.
+// 9. EWP's staff member views the account at the Partner Bank: a signed staff view pushed over mutual
+//    TLS returns a one-time request_uri; the browser opens the read-only page once; replayed, other-
+//    customer, asking-for-more and made-up requests are refused.
 //
 // Needs %USERPROFILE%\.ewp-pki from EWP's ps\pki\New-EwpLocalPki.ps1. Every *.ewp.home.arpa name is
 // connected to the given address directly (no hosts-file entry needed); only the PoC's root is trusted.
@@ -682,6 +685,52 @@ var holdingText = holdingJson?.ToJsonString() ?? "";
 Check("EWP reads the holding from the Partner Bank: grams, today's value, and the SMS notices the Partner Bank sent the customer",
     holdingResponse.IsSuccessStatusCode && (decimal?)holdingJson?["holding"]?["grams"] == (decimal?)buyJson?["grams"] && (decimal?)holdingJson?["holding"]?["valueAud"] > 0 &&
     holdingText.Contains("Notice sent by SMS"), $"HTTP {(int)holdingResponse.StatusCode}");
+
+Console.WriteLine();
+Console.WriteLine("9. EWP's staff member views the account at the Partner Bank (PAR-style handoff)");
+JsonObject StaffView(string? customer = null, bool askForMore = false)
+{
+    var view = new JsonObject
+    {
+        ["type"] = "staff_account_view",
+        ["goldAccountNumber"] = goldAccount,
+        ["customer"] = new JsonObject { ["ewpCustomerNumber"] = customer ?? distCustomer },
+        ["actor"] = Actor()
+    };
+    if (askForMore)
+        view["allAccounts"] = true;
+    return view;
+}
+
+var viewInstruction = SignInstruction(StaffView());
+var (viewStatus, viewBody) = await InstructAsync("/api/distribution/staff-views", viewInstruction);
+var staffRequestUri = Text(viewBody, "request_uri");
+Check("EWP pushes a SIGNED staff view over mutual TLS: a one-time request_uri, nothing about the account",
+    viewStatus == HttpStatusCode.Created && staffRequestUri?.StartsWith("urn:partner-bank:staff-view:") == true && !viewBody.Contains(goldAccount ?? "?"),
+    $"HTTP {(int)viewStatus}");
+
+var (replayStatus, _) = await InstructAsync("/api/distribution/staff-views", viewInstruction);
+Check("The same signed staff view pushed again: refused", replayStatus == HttpStatusCode.Conflict, $"HTTP {(int)replayStatus}");
+
+var (otherCustomerStatus, _) = await InstructAsync("/api/distribution/staff-views", SignInstruction(StaffView(customer: "CUST-1")));
+Check("A staff view naming another customer for the account: 404", otherCustomerStatus == HttpStatusCode.NotFound, $"HTTP {(int)otherCustomerStatus}");
+
+var (extraFieldStatus, _) = await InstructAsync("/api/distribution/staff-views", SignInstruction(StaffView(askForMore: true)));
+Check("A staff view asking for more (an unknown field): refused", extraFieldStatus == HttpStatusCode.BadRequest, $"HTTP {(int)extraFieldStatus}");
+
+using var staffBrowser = Client(null);
+var staffAddress = $"{WindowOrigin}/StaffView?request_uri={Uri.EscapeDataString(staffRequestUri ?? "")}";
+var staffPage = await staffBrowser.GetAsync(staffAddress);
+var staffHtml = await staffPage.Content.ReadAsStringAsync();
+Check("The browser opens the Partner Bank's read-only page: the account, its grams, who is looking",
+    staffPage.IsSuccessStatusCode && staffHtml.Contains(goldAccount ?? "?") && staffHtml.Contains("Read-only view for") && staffHtml.Contains("somit") &&
+    staffPage.Headers.CacheControl?.NoStore == true, $"HTTP {(int)staffPage.StatusCode}");
+
+var staffAgain = await staffBrowser.GetAsync(staffAddress);
+Check("The same request_uri again: not shown (one use)", staffAgain.StatusCode == HttpStatusCode.NotFound, $"HTTP {(int)staffAgain.StatusCode}");
+
+var guessed = await staffBrowser.GetAsync($"{WindowOrigin}/StaffView?request_uri={Uri.EscapeDataString("urn:partner-bank:staff-view:" + Base64Url(RandomNumberGenerator.GetBytes(32)))}");
+Check("A made-up request_uri: not shown", guessed.StatusCode == HttpStatusCode.NotFound, $"HTTP {(int)guessed.StatusCode}");
 
 Console.WriteLine();
 Console.WriteLine(failures == 0 ? "All checks passed." : $"{failures} check(s) failed.");

@@ -35,6 +35,33 @@ public static class DistributionApi
         distribution.MapGet("/gold-accounts", AccountOfCustomerAsync);
         distribution.MapGet("/gold-accounts/{number}", AccountAsync);
         distribution.MapPost("/gold-orders", PlacePurchaseAsync);
+        distribution.MapPost("/staff-views", PushStaffViewAsync);
+    }
+
+    // ┌─ SEC ────────────────────────────────────────────────────────────────────────────────
+    // │ A staff view only of an account THIS distributor introduced, for the customer the
+    // │ instruction names (otherwise the same 404 as an unknown account); the answer is the
+    // │ request_uri only, as PAR answers - no data about the account.
+    // └──────────────────────────────────────────────────────────────────────────────────────
+    private static async Task<IResult> PushStaffViewAsync(
+        HttpRequest request, ClaimsPrincipal caller, SignedInstructions signed, GoldDesk desk, StaffViews views, CancellationToken cancellationToken)
+    {
+        var (instruction, problem) = await ReadAsync(request, caller, signed, cancellationToken);
+        if (problem is not null)
+            return problem;
+
+        var view = Instructions.TryStaffView(instruction!.Instruction, out var error);
+        if (view is null)
+            return Invalid(error!);
+
+        var account = await desk.AccountAsync(view.GoldAccountNumber, ClientId(caller), cancellationToken);
+        if (account is null || account.EwpCustomerNumber != view.EwpCustomerNumber)
+            return Results.Problem($"No Digital Gold account {view.GoldAccountNumber} for this customer and distributor.", statusCode: StatusCodes.Status404NotFound);
+
+        var requestUri = views.Push(instruction.InstructionId, account.Number, ClientId(caller), view.Actor);
+        return requestUri is null
+            ? Results.Problem("This signed instruction was already used: sign a new one for each view.", statusCode: StatusCodes.Status409Conflict)
+            : Results.Created((string?)null, new { request_uri = requestUri, expires_in = (int)StaffViews.Lifetime.TotalSeconds });
     }
 
     private static async Task<IResult> OpenAccountAsync(

@@ -13,6 +13,11 @@ public sealed record ActivityView(DateTimeOffset At, string Text, string? Refere
 
 public sealed record HoldingsView(decimal Grams, decimal PricePerGram, decimal ValueAud, DateTimeOffset PricedAt, IReadOnlyList<ActivityView> Activity);
 
+/// <summary>One account, as a distributor's staff member may see it (read-only).</summary>
+public sealed record StaffViewPage(
+    string AccountNumber, string HolderName, string EwpCustomerNumber, DateTimeOffset OpenedAt, string Distributor,
+    string StaffLanId, string StaffBranch, DateTimeOffset ViewedAt, HoldingsView Holding);
+
 /// <summary>
 /// The Partner Bank API's internal port, called with the signed-in customer's OWN access token: the
 /// window holds no data and asserts nothing - the API decides everything from the token.
@@ -53,6 +58,16 @@ public sealed class PartnerApi(HttpClient http, IHttpContextAccessor accessor)
     {
         var response = await SendAsync(HttpMethod.Get, $"internal/applications/{Uri.EscapeDataString(number)}", null, cancellationToken);
         return response.StatusCode == HttpStatusCode.NotFound ? null : await response.EnsureSuccessStatusCode().Content.ReadFromJsonAsync<ApplicationView>(cancellationToken);
+    }
+
+    /// <summary>
+    /// Redeems a distributor's staff-view request_uri - once; null when unknown, used or expired. No
+    /// customer is signed in here: the one-time request_uri is the authorisation (internal port only).
+    /// </summary>
+    public async Task<StaffViewPage?> RedeemStaffViewAsync(string requestUri, CancellationToken cancellationToken)
+    {
+        using var response = await http.PostAsJsonAsync("internal/staff-views/redeem", new { requestUri }, cancellationToken);
+        return response.IsSuccessStatusCode ? await response.Content.ReadFromJsonAsync<StaffViewPage>(cancellationToken) : null;
     }
 
     private async Task<HttpResponseMessage> SendAsync(HttpMethod method, string path, HttpContent? content, CancellationToken cancellationToken)

@@ -1,0 +1,53 @@
+@page
+@model PartnerBank.Web.Pages.StaffViewModel
+@{
+    ViewData["Title"] = "Staff view";
+}
+<section class="card wide">
+    @if (Model.View is not { } view)
+    {
+        <h1>This view is no longer available</h1>
+        <p class="lead">A staff view opens once, within a minute of being requested. Open it again from your bank's screen.</p>
+    }
+    else
+    {
+        <p class="staff-banner">
+            Read-only view for <strong>@view.StaffLanId</strong> (branch @view.StaffBranch) of @view.Distributor, opened @MyModel.When(view.ViewedAt).
+            This page does not refresh: open it again from your bank's screen for the latest.
+        </p>
+        <h1>Digital Gold account @view.AccountNumber</h1>
+        <p class="lead">@view.HolderName - @view.Distributor customer @view.EwpCustomerNumber, account opened @MyModel.When(view.OpenedAt)</p>
+
+        <h2>Holding</h2>
+        @if (view.Holding.Grams == 0)
+        {
+            <p>No gold held yet.</p>
+        }
+        else
+        {
+            <div class="holding">
+                <span class="grams">@view.Holding.Grams.ToString("0.0000") g</span>
+                <span class="value">worth AUD @MyModel.Money(view.Holding.ValueAud) today</span>
+            </div>
+            <p class="muted">At AUD @MyModel.Money(view.Holding.PricePerGram) per gram, @MyModel.When(view.Holding.PricedAt).</p>
+        }
+
+        <h2>Activity</h2>
+        @if (view.Holding.Activity.Count == 0)
+        {
+            <p>Nothing yet.</p>
+        }
+        else
+        {
+            <ul class="list activity">
+                @foreach (var entry in view.Holding.Activity)
+                {
+                    <li>
+                        <span class="muted">@MyModel.When(entry.At)</span>
+                        <span>@entry.Text</span>
+                    </li>
+                }
+            </ul>
+        }
+    }
+</section>

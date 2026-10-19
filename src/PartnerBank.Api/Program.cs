@@ -44,6 +44,8 @@ builder.Services.AddDbContext<PartnerDbContext>(options =>
 builder.Services.AddScoped<GoldDesk>();
 // EWP's signed distributor instructions: checked with its request-signing certificate (loaded once, fails at start-up if missing).
 builder.Services.AddSingleton<SignedInstructions>();
+// Staff-view handoffs (PAR-style request_uri, 60 s, one use): in memory, one instance.
+builder.Services.AddSingleton<StaffViews>();
 
 var backchannel = TrustedBackchannel.Create(trustRoot, settings.ResolvePartnerHostsTo);
 

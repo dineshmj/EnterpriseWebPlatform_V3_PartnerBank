@@ -5,6 +5,7 @@ using Microsoft.EntityFrameworkCore;
 
 using PartnerBank.Api.Configuration;
 using PartnerBank.Api.Data;
+using PartnerBank.Api.Distribution;
 using PartnerBank.Api.Gold;
 
 namespace PartnerBank.Api.Api;
@@ -34,6 +35,32 @@ public static class InternalApi
         api.MapGet("/applications/{number}", ApplicationAsync);
         api.MapGet("/applications", MyApplicationsAsync);
         api.MapGet("/holdings", MyHoldingsAsync);
+
+        // ┌─ SEC ────────────────────────────────────────────────────────────────────────────────
+        // │ Redeeming a staff view: no customer token exists here (the customer is not signing
+        // │ in) - the one-time, 60-second, 256-bit request_uri IS the authorisation, and this
+        // │ port is reachable from this machine only (the Partner Bank's own web). Any failure
+        // │ is the same 404.
+        // └──────────────────────────────────────────────────────────────────────────────────────
+        endpoints.MapPost("/internal/staff-views/redeem", RedeemStaffViewAsync).AllowAnonymous();
+    }
+
+    public sealed record RedeemRequest(string? RequestUri);
+
+    public sealed record StaffViewPage(
+        string AccountNumber, string HolderName, string EwpCustomerNumber, DateTimeOffset OpenedAt, string Distributor,
+        string StaffLanId, string StaffBranch, DateTimeOffset ViewedAt, GoldDesk.HoldingView Holding);
+
+    private static async Task<IResult> RedeemStaffViewAsync(
+        RedeemRequest request, StaffViews views, GoldDesk desk, TimeProvider clock, CancellationToken cancellationToken)
+    {
+        var view = views.Redeem(request.RequestUri);
+        var account = view is null ? null : await desk.AccountAsync(view.AccountNumber, view.DistributorClientId, cancellationToken);
+        if (view is null || account is null)
+            return Results.NotFound();
+        return Results.Ok(new StaffViewPage(account.Number, account.HolderName, account.EwpCustomerNumber, account.OpenedAt,
+            desk.Name(view.DistributorClientId), view.Actor.LanId, view.Actor.Branch, clock.GetUtcNow(),
+            await desk.HoldingAsync(account.Number, cancellationToken)));
     }
 
     // ┌─ SEC ────────────────────────────────────────────────────────────────────────────────

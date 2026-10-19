@@ -110,6 +110,30 @@ public static partial class Instructions
             : null;
     }
 
+    public const string StaffAccountView = "staff_account_view";
+
+    public sealed record StaffView(string GoldAccountNumber, string EwpCustomerNumber, Actor Actor);
+
+    // ┌─ SEC ────────────────────────────────────────────────────────────────────────────────
+    // │ A staff view: ONE account, of ONE customer, for ONE named staff member of the
+    // │ distributor - read-only. No other field (no date range, no "all accounts").
+    // └──────────────────────────────────────────────────────────────────────────────────────
+    public static StaffView? TryStaffView(JsonObject instruction, out string? error)
+    {
+        error = null;
+        if (!OnlyFields(instruction, out error, "type", "goldAccountNumber", "customer", "actor") || Text(instruction, "type") != StaffAccountView)
+            return Fail<StaffView>(ref error, $"The instruction must be a {StaffAccountView} with goldAccountNumber, customer and actor only.");
+        var account = Text(instruction, "goldAccountNumber");
+        if (account is null || !GoldAccountPattern().IsMatch(account))
+            return Fail<StaffView>(ref error, "goldAccountNumber (PB-DGA-...) is required.");
+        if (instruction["customer"] is not JsonObject customer || !OnlyFields(customer, out error, "ewpCustomerNumber") ||
+            Text(customer, "ewpCustomerNumber") is not { } number || !CustomerNumberPattern().IsMatch(number))
+        {
+            return Fail<StaffView>(ref error, "customer.ewpCustomerNumber (CUST-...) is required.");
+        }
+        return TryActor(instruction, out var actor, out error) ? new StaffView(account, number, actor!) : null;
+    }
+
     private static bool Evidence(JsonObject evidence, string numberField, out string? number, out DateOnly signedOn, out string? scan, out string? error, params string[] extra)
     {
         number = Text(evidence, numberField);
