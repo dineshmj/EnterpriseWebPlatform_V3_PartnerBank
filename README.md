@@ -39,6 +39,8 @@ at EWP's counter and never signs in here; see doc/Architecture.md D14):
                     POST /api/distribution/gold-orders        body: SIGNED instruction ──► order, grams locked
                     then the payment advice as in 5; EWP's commission is recorded on the order
    The holding:     GET  /api/distribution/gold-accounts/{number}  ──► grams, today's value, activity
+   A staff view:    POST /api/distribution/staff-views         body: SIGNED instruction ──► a one-time request_uri (60 s)
+                    the staff member's browser ──► https://partner-products.ewp.home.arpa:47402/StaffView?request_uri=…  (read-only, once)
    ("My Partner Bank" - grams, today's value, applications, activity; read with the customer's own token)
 ```
 
@@ -125,7 +127,7 @@ Both tools are single-file .NET 10 apps acting from EWP's side (EWP's client cer
 
 ```powershell
 dotnet run tools\HandshakeCheck\HandshakeCheck.cs -- 192.168.1.12   # the authorization server: 22 checks
-dotnet run tools\JourneyCheck\JourneyCheck.cs -- 192.168.1.12       # the whole journey, as EWP AND as the customer's browser: 62 checks
+dotnet run tools\JourneyCheck\JourneyCheck.cs -- 192.168.1.12       # the whole journey, as EWP AND as the customer's browser: 69 checks
 ```
 
 Leave out the address for the Partner Bank on the same machine. The handshake check prints a link for a browser test; the browser needs `ewp-trust-root.cer` in "Trusted Root Certification Authorities" to open it without a warning.

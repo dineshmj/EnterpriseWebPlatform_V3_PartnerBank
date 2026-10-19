@@ -8,7 +8,7 @@ Scope: the Partner Bank's three deployables and their two boundaries - EWP's ser
 |---|---|
 | EWP's request-signing key (EWP's asset; its public part registered here) | anyone holding it could sign authorization requests as EWP |
 | Customers' Partner Bank sessions and tokens | a stolen session or token acts as the customer |
-| EWP's access to the Partner API | an impostor "EWP" could create window links, read applications - and, next, order gold |
+| EWP's access to the Partner API | an impostor "EWP" could create window links, read applications, open Digital Gold accounts, order gold, or open staff views |
 | Window links | a link opens the Partner's window for one customer |
 | Applications, gold orders, holdings and the activity ledger | the Partner Bank's own records of what its customers own |
 | The Partner Bank's TLS private key | anyone holding it can pose as the Partner Bank |

@@ -83,10 +83,11 @@ Both trust **one root** (`EWP Local Trust Root (DEVELOPMENT ONLY)`), created by 
 1. Camilla signs Form VII at EWP's counter; Sophie records it (number, date, scan) in EWP. EWP's server gets its own token (client credentials over mutual TLS, bound to its certificate) and sends a SIGNED `digital_gold_account_opening` instruction: the Partner Bank opens Digital Gold account PB-DGA-… for Camilla (one per customer, per form) and sends her an SMS.
 2. Any time later, Camilla signs a transfer authorization slip (amount, her mobile number). EWP sends a SIGNED `digital_gold_purchase` instruction: the Partner Bank checks the account is EWP's customer's, the slip's mobile is the account's and the slip is today's and unused; it places the order (grams locked 5 minutes) and records EWP's commission.
 3. EWP pays and sends the payment advice: the grams are allocated. EWP reads the holding (grams, today's value, activity) from the Partner Bank - never a copy of its own.
+4. Sophie opens this bank's own read-only page for the account (D15): EWP pushes a SIGNED `staff_account_view` and gets a one-time `request_uri` (60 s); her browser opens `/StaffView` with it in a new tab. Verified by `tools\JourneyCheck`, section 9.
 
-**EWP's side** (EWP repository, `src/Microservices/PartnerProducts`): Sophie records Form VII at the counter and sends it; EWP's Partner Products API calls this API over mutual TLS with its bound token and a signed instruction, and reads the holding back. Verified with Camilla on 2026-10-17 (account opened from EWP's screen).
+**EWP's side** (EWP repository, `src/Microservices/PartnerProducts`): Sophie records Form VII at the counter and sends it; EWP's Partner Products API calls this API over mutual TLS with its bound token and a signed instruction, and reads the holding back. Verified with Camilla on 2026-10-17 (account opened from EWP's screen). On 2026-10-19 the whole purchase: a AUD 20 slip placed as an order here, paid through EWP's Payments saga, followed by a Temporal workflow on EWP's side that sent the payment advice (0.1213 g allocated) - or cancels an unpaid order; and Sophie's staff view (D15). EWP's documentation: its `doc/Requirements/PartnerProducts-Requirements.md`.
 
-**Next**: the purchase from a transfer slip - the order, the payment through EWP's Payments saga orchestrated by a Temporal workflow, and the payment advice.
+**Not done here** (ideas, not plans): distributor staff signed in by federation with EWP's IDP instead of trusting the signed request (R10); the views and their log in the database; notices through a Partner Bank app instead of simulated SMS.
 
 ## 5. Ports
 
