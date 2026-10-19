@@ -66,6 +66,11 @@ public sealed class PartnerApi(HttpClient http, IHttpContextAccessor accessor)
     /// </summary>
     public async Task<StaffViewPage?> RedeemStaffViewAsync(string requestUri, CancellationToken cancellationToken)
     {
+        // ┌─ SEC ────────────────────────────────────────────────────────────────────────────────
+        // │ The ONE call without a customer's token: nobody signs in for a staff view. The
+        // │ one-time request_uri is the authorisation, and it is redeemed only on the API's
+        // │ localhost-only internal port, server-side - the browser never reaches the API.
+        // └──────────────────────────────────────────────────────────────────────────────────────
         using var response = await http.PostAsJsonAsync("internal/staff-views/redeem", new { requestUri }, cancellationToken);
         return response.IsSuccessStatusCode ? await response.Content.ReadFromJsonAsync<StaffViewPage>(cancellationToken) : null;
     }

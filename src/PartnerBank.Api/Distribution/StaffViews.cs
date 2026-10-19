@@ -31,7 +31,10 @@ public sealed class StaffViews(TimeProvider clock, ILogger<StaffViews> logger)
     {
         var now = clock.GetUtcNow();
         Sweep(now);
-        // The signed instruction lives 5 minutes: remember its jti a little longer than that.
+        // ┌─ SEC ────────────────────────────────────────────────────────────────────────────────
+        // │ If this signed instruction (its jti) was pushed before, refuse it: a replayed request
+        // │ never yields a second view. Its jti is kept a little longer than its 5-minute life.
+        // └──────────────────────────────────────────────────────────────────────────────────────
         if (!usedInstructions.TryAdd(instructionId, now.AddMinutes(6)))
             return null;
 
@@ -44,6 +47,11 @@ public sealed class StaffViews(TimeProvider clock, ILogger<StaffViews> logger)
     /// <summary>The pushed view, ONCE: removed as it is redeemed; null when unknown, used or expired.</summary>
     public Pushed? Redeem(string? requestUri)
     {
+        // ┌─ SEC ────────────────────────────────────────────────────────────────────────────────
+        // │ If the reference is malformed, unknown, already opened or past its 60 seconds, there
+        // │ is no view - and the caller cannot tell which (the same "not available"). Removing it
+        // │ while reading makes the one use atomic, even for two requests at the same moment.
+        // └──────────────────────────────────────────────────────────────────────────────────────
         if (requestUri is null || !requestUri.StartsWith(RequestUriPrefix, StringComparison.Ordinal) || requestUri.Length > RequestUriPrefix.Length + 64)
             return null;
         if (!pending.TryRemove(Hash(requestUri[RequestUriPrefix.Length..]), out var view) || clock.GetUtcNow() > view.ExpiresAt)
