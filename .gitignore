@@ -30,3 +30,7 @@
 # Node.js (later tiers)
 **/node_modules/
 **/.next/
+
+# Local packaging (SmartZipper): the exclude list and the ZIP files it produces
+*.zip
+/smartzipper.exclude.json
