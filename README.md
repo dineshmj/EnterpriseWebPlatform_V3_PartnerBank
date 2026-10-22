@@ -127,8 +127,10 @@ Both tools are single-file .NET 10 apps acting from EWP's side (EWP's client cer
 
 ```powershell
 dotnet run tools\HandshakeCheck\HandshakeCheck.cs -- 192.168.1.12   # the authorization server: 22 checks
-dotnet run tools\JourneyCheck\JourneyCheck.cs -- 192.168.1.12       # the whole journey, as EWP AND as the customer's browser: 69 checks
+dotnet run tools\JourneyCheck\JourneyCheck.cs -- 192.168.1.12       # the whole journey, as EWP AND as the customer's browser: 70 checks
 ```
+
+Unit tests need no running service: `dotnet test tst\PartnerBank.Api.Tests` (NUnit, 32 tests). They cover what makes a distributor instruction once-only, without a network: the signature check (forgeries, missing `jti`, too long a life, another caller), the same instruction resent or committed twice at the same moment (one account, one order; the unique indexes decide), and the staff view's one use (an instruction pushed twice, a `request_uri` redeemed twice or by 32 requests at once, after 60 seconds). They use the Partner Bank's own model on an in-memory SQLite database and a throw-away signing key in a temp folder, never `.ewp-pki`. Which threat each test covers: [doc/Threat-Model.md](doc/Threat-Model.md) section 5.
 
 Leave out the address for the Partner Bank on the same machine. The handshake check prints a link for a browser test; the browser needs `ewp-trust-root.cer` in "Trusted Root Certification Authorities" to open it without a warning.
 

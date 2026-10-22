@@ -68,3 +68,16 @@ Scope: the Partner Bank's three deployables and their two boundaries - EWP's ser
 | R8 | EWP's request-signing key is in a file on the laptop | an HSM or a key-management service; signing done by the service, the key never exported |
 | R9 | The Partner Bank cannot see the customer sign Form VII or a slip: it relies on EWP (the distribution agreement, the scan's hash, after-the-fact SMS notices) | the agreement's audit rights (sample checks of scans against hashes), a cooling-off period, notices through the Partner Bank's own app |
 | R10 | Staff views trust EWP's signed request for WHO is looking: the Partner Bank cannot authenticate EWP's staff itself; pending views and the view log are in memory / the API's log only (a restart loses unopened views) | single sign-on of distributor staff (federation with EWP's IDP), views and their log in the database, per-staff view limits |
+
+## 5. How it is checked
+
+Two layers. **UT** = unit tests in `tst/PartnerBank.Api.Tests` (`dotnet test`, no services needed: the Partner Bank's own model on an in-memory SQLite database, a throw-away signing key in a temp folder, a test clock). **JC** = `tools/JourneyCheck` against the running Partner Bank (end to end, as EWP and as the browser).
+
+| # | Checked by |
+|---|---|
+| T24 | UT `SignedInstructions_CheckAsync_Edge_Forgeries` (unsigned, another key, altered after signing, no `jti`, valid for an hour, expired, signed by EWP but sent by another client, EWP's key on another token type or audience); JC section 8 (unsigned, another key, altered, expired) |
+| T25 | UT `GoldDesk_OpenAccountAsync_Edge_Replays`, `GoldDesk_PlacePurchaseAsync_Edge_Replays` (the same instruction resent = the same account / order and no second SMS; the same Form VII or slip in a new instruction refused; the same instruction committed by another request between the check and the save = still one record, the unique index decides); JC section 8 (the same Form VII instruction again, the same signed purchase resent, a reused slip) |
+| T26 | UT `GoldDesk_PlacePurchaseAsync_Edge_Replays` (another distributor = not found; another customer refused); JC section 8 (an account EWP did not introduce, a wrong mobile) |
+| T28 | UT `StaffViews_PushAndRedeem_Edge_OneUse` (an instruction pushed twice, also late in its 5 minutes; a `request_uri` redeemed twice; 32 redeems at the same moment = exactly one page; after 60 seconds; made-up, empty, other-kind and overlong references); JC section 9 |
+
+Not covered by the unit tests: mutual TLS and the certificate-bound token on the wire (HandshakeCheck and JourneyCheck cover them).

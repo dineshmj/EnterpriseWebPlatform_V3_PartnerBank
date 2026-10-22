@@ -11,4 +11,7 @@
   <Folder Name="/Shared/">
     <Project Path="src/PartnerBank.Security/PartnerBank.Security.csproj" />
   </Folder>
+  <Folder Name="/Tests/">
+    <Project Path="tst/PartnerBank.Api.Tests/PartnerBank.Api.Tests.csproj" />
+  </Folder>
 </Solution>

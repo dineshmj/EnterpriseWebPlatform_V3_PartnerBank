@@ -20,7 +20,8 @@
 // 8. EWP as the Partner Bank's distributor (assisted channel: the customer signs paper forms at
 //    EWP's counter, never signs in here): EWP's own token, SIGNED instructions - Form VII opens a
 //    Digital Gold account, a transfer authorization slip buys gold; refusals for unsigned, altered,
-//    expired, other-key, unknown-field, reused-slip, wrong-mobile and old-slip instructions.
+//    expired, other-key, unknown-field, reused-slip, wrong-mobile and old-slip instructions; the same
+//    signed instruction resent (a lost answer) returns the same order.
 // 9. EWP's staff member views the account at the Partner Bank: a signed staff view pushed over mutual
 //    TLS returns a one-time request_uri; the browser opens the read-only page once; replayed, other-
 //    customer, asking-for-more and made-up requests are refused.
@@ -655,12 +656,18 @@ JsonObject Slip(string slipNumber, string? mobile = null, DateOnly? signedOn = n
 };
 
 var slipNumber = $"TAS-{distRun}";
-var (buyStatus, buyBody) = await InstructAsync("/api/distribution/gold-orders", SignInstruction(Slip(slipNumber)));
+var buyInstruction = SignInstruction(Slip(slipNumber));
+var (buyStatus, buyBody) = await InstructAsync("/api/distribution/gold-orders", buyInstruction);
 var distOrder = Text(buyBody, "number");
 var buyJson = JsonNode.Parse(buyBody);
 Check("A transfer slip, signed by EWP: AUD 20.00 of gold, grams locked, EWP's commission recorded",
     buyStatus == HttpStatusCode.Created && (string?)buyJson?["goldAccountNumber"] == goldAccount && (decimal?)buyJson?["commissionAud"] == 0.10m && (decimal?)buyJson?["grams"] > 0,
     $"HTTP {(int)buyStatus} {distOrder}");
+
+// EWP's adapter resends the SAME signed instruction (same jti) when an answer is lost.
+var (resentStatus, resentBody) = await InstructAsync("/api/distribution/gold-orders", buyInstruction);
+Check("The same signed purchase resent (a lost answer): the same order, not a second one",
+    resentStatus == HttpStatusCode.OK && Text(resentBody, "number") == distOrder, $"HTTP {(int)resentStatus}");
 
 var (slipAgainStatus, _) = await InstructAsync("/api/distribution/gold-orders", SignInstruction(Slip(slipNumber)));
 Check("The same slip in a new instruction is refused (one slip, one purchase)", slipAgainStatus == HttpStatusCode.Conflict, $"HTTP {(int)slipAgainStatus}");
