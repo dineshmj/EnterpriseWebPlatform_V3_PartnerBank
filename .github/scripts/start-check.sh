@@ -77,15 +77,18 @@ cleanup() {
 trap cleanup EXIT
 
 # Started = the host's "Application started." line; a container that stops first has failed.
+# NOTE: grep reads the WHOLE log (no -q): with -q it stops at the match, docker logs gets SIGPIPE
+#       while still writing, and pipefail turns a found line into "not found".
+started() { docker logs "$name" 2>&1 | grep 'Application started' > /dev/null; }
 for _ in $(seq 1 60); do
   if [ "$(docker inspect -f '{{.State.Running}}' "$name")" != "true" ]; then
     echo "::error::$IMAGE stopped during start-up (exit code $(docker inspect -f '{{.State.ExitCode}}' "$name"))."
     exit 1
   fi
-  if docker logs "$name" 2>&1 | grep -q 'Application started'; then break; fi
+  if started; then break; fi
   sleep 1
 done
-if ! docker logs "$name" 2>&1 | grep -q 'Application started'; then
+if ! started; then
   echo "::error::$IMAGE did not start within 60 seconds."
   exit 1
 fi
