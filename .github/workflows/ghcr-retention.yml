@@ -1,0 +1,64 @@
+# ┌─ :: ARCHITECTURE + SECURITY :: Registry retention for the container images ───────────────────
+# │ Why : GHCR keeps every image CI ever published; old ones only cost space and blur which
+# │       image is current. The commit-SHA tags a deployment pins must stay long enough to roll
+# │       back.
+# │ How : Weekly (and by hand): .github/scripts/ghcr-retention.sh keeps the newest KEEP tagged
+# │       versions of each image in .github/container-images.json plus the one tagged "main",
+# │       and deletes older ones with their platform and attestation manifests. A manual run is a
+# │       dry run unless "dry_run" is switched off. Only this job may delete (packages: write).
+# │ Ref : doc/Containers.md "Registry retention" | OWASP A08
+# └────────────────────────────────────────────────────────────────────────────────────────────────
+name: Registry retention
+
+on:
+  schedule:
+    - cron: '17 3 * * 1'     # Mondays 03:17 UTC
+  workflow_dispatch:
+    inputs:
+      keep:
+        description: Tagged versions to keep per image (at least 3)
+        default: '10'
+        required: true
+      dry_run:
+        description: Only list what would be deleted
+        type: boolean
+        default: true
+
+# SEC: least privilege by default; the job below asks for what it needs.
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+jobs:
+  prune:
+    name: Keep the last images
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      packages: write        # list and delete package versions
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Sign in to GHCR
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Prune old versions
+        # SEC: inputs reach the script as environment variables, never pasted into it. A
+        # scheduled run has no inputs: keep 10, delete for real.
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OWNER: ${{ github.repository_owner }}
+          KEEP: ${{ inputs.keep || '10' }}
+          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
+        run: bash .github/scripts/ghcr-retention.sh

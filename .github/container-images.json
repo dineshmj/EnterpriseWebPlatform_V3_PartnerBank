@@ -1,0 +1,53 @@
+{
+  "images": [
+    {
+      "image": "partner-bank-api",
+      "dockerfile": "src/PartnerBank.Api/Dockerfile",
+      "paths": [
+        "src/PartnerBank.Api/",
+        "src/PartnerBank.Security/"
+      ],
+      "check": {
+        "port": 47403,
+        "path": "/api/products",
+        "clientCertificate": true,
+        "expect": "401",
+        "env": {}
+      }
+    },
+    {
+      "image": "partner-bank-authorization-server",
+      "dockerfile": "src/PartnerBank.AuthorizationServer/Dockerfile",
+      "paths": [
+        "src/PartnerBank.AuthorizationServer/",
+        "src/PartnerBank.Security/"
+      ],
+      "check": {
+        "port": 47401,
+        "path": "/.well-known/openid-configuration/jwks",
+        "clientCertificate": false,
+        "expect": "200",
+        "env": {
+          "PartnerBank__ProductsWindowClient__Secret": "start-check-only"
+        }
+      }
+    },
+    {
+      "image": "partner-bank-web",
+      "dockerfile": "src/PartnerBank.Web/Dockerfile",
+      "paths": [
+        "src/PartnerBank.Security/",
+        "src/PartnerBank.Web/"
+      ],
+      "check": {
+        "port": 47402,
+        "path": "/",
+        "clientCertificate": false,
+        "expect": "200",
+        "env": {
+          "PartnerBank__WindowClientSecret": "start-check-only"
+        }
+      }
+    }
+  ]
+}

@@ -35,6 +35,12 @@ public sealed class PartnerBankOptions
     /// <summary>A Partner Bank session ends after this many idle minutes.</summary>
     public int SessionIdleMinutes { get; init; } = 10;
 
+    /// <summary>Where IdentityServer keeps its automatically managed signing keys; empty = its default ("keys" in the working folder). The image sets /data/signing-keys.</summary>
+    public string? SigningKeysPath { get; init; }
+
+    /// <summary>Where the Data Protection keys are kept; empty = the framework's default. The image sets /data/data-protection-keys.</summary>
+    public string? DataProtectionKeysPath { get; init; }
+
     /// <summary>Product names for the consent page (the catalogue itself belongs to the Partner Bank API).</summary>
     public Dictionary<string, string> ProductNames { get; init; } = [];
 }

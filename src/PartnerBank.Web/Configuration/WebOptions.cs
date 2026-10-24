@@ -22,6 +22,9 @@ public sealed class WebOptions
 
     public string WindowClientSecret { get; init; } = string.Empty;
 
+    /// <summary>Where the Data Protection keys (the session cookie's) are kept; empty = the framework's default. The image sets /data/data-protection-keys.</summary>
+    public string? DataProtectionKeysPath { get; init; }
+
     // ┌─ SEC ────────────────────────────────────────────────────────────────────────────────
     // │ Fail closed at start-up: the authorization server and the API must be https addresses,
     // │ and the window's client credentials must be set.

@@ -136,6 +136,10 @@ Leave out the address for the Partner Bank on the same machine. The handshake ch
 
 Customer accounts live in the authorization server's own database, `src\PartnerBank.AuthorizationServer\partner-identity.db` (passwords hashed). The demo customers `alex.partner` and `sam.partner` (Development, see `appsettings.Development.json`) are created there at start-up; customers EWP sends register themselves. In Development the registration's one-time code is shown on the page (and in the authorization server's console) in place of an SMS. Delete `src\PartnerBank.Api\partner-bank.db` (with the API stopped) to start the Partner Bank's data again - and after an update that adds tables: the API refuses to start with an older database and says so. To look inside: `sqlite3 src\PartnerBank.Api\partner-bank.db "select Number, Status, AmountAud, Grams from GoldOrders;"`.
 
+## Containers and CI
+
+Every pull request runs the CI gates (build, unit tests, vulnerable packages - [doc/CI.md](doc/CI.md)); `main` takes only a squash-merged pull request with "CI result" green. GitHub Actions builds the three container images (`partner-bank-authorization-server`, `partner-bank-api`, `partner-bank-web`), scans them, starts each one locked down with throw-away certificates, and publishes them to GHCR from `main` only. The images keep TLS inside the deployable (mutual TLS needs the client certificate in the handshake); an environment mounts the certificates and one `/data` volume. Run-time contract and known gaps: [doc/Containers.md](doc/Containers.md). Running locally is unchanged (`Start-PartnerBank.ps1`).
+
 ## Security controls
 
 **Authorization server**
@@ -194,5 +198,15 @@ Customer accounts live in the authorization server's own database, `src\PartnerB
 | 21b | **No silent reuse of an old sign-in, and a real sign-out**: the window accepts a Partner Bank sign-in only if it is at most 2 minutes old (`max_age`), so right after a consent there is no second password but later - perhaps another person at the desk - there is; "Sign out" (POST, anti-forgery while the window still has a session) ends the window's session AND the Partner Bank's - also after the window's session has already expired (the Partner Bank then asks before signing out) | `Program.cs`, `Pages/SignOut.cshtml.cs` |
 | 22 | **The session cookie** is `__Host-`, HttpOnly, Secure, SameSite=Lax, 10 minutes sliding; anti-forgery tokens on every form; one message for every link failure | `Program.cs`, `Pages/` |
 | 22a | **The staff view page** (`/StaffView?request_uri=...`): redeemed once on the localhost-only API port (the request_uri is the authorisation - no customer signs in); read-only, no cookie, no form, `Cache-Control: no-store`, `Referrer-Policy: no-referrer`; it names the staff member and branch from EWP's signed request; reloading shows "no longer available"; every push and opening is logged | `Pages/StaffView.cshtml(.cs)`, API `Api/InternalApi.cs` |
+
+**Images and CI** ([doc/Containers.md](doc/Containers.md), [doc/CI.md](doc/CI.md))
+
+| # | Control | Where |
+|---|---|---|
+| 23 | **Images built only by CI, from a commit**: hadolint, Trivy (a HIGH / CRITICAL vulnerability with a fix, or any secret, stops the image), a start check, and only then - on `main` - published with an SBOM and SLSA provenance, tagged with the commit SHA; actions pinned to commit SHAs | `.github/workflows/container-images.yml` |
+| 24 | **Nothing secret in an image**: development settings, key material (certificates, passwords, IdentityServer's `keys/`) and the local databases never enter the build context; the image runs as `Production` (no demo customers, no codes on the page); certificates are mounted at run time, the two client secrets come from a secret store | `.dockerignore`, `src/*/Dockerfile` |
+| 25 | **A locked-down runtime**: chiseled base pinned by tag and digest (no shell, no package manager), non-root UID 1654, program files read-only, ONE writable folder (`/data`); TLS still ends in the deployable itself, so the client-certificate checks and certificate-bound tokens (1, 4, 14) work unchanged in a container; the API's internal port stays localhost-only in the image. CI starts every image that way (read-only, no capabilities) with a throw-away PKI before publishing it | `src/*/Dockerfile`, `.github/scripts/start-check.sh` |
+| 26 | **Keys survive a restart**: IdentityServer's signing keys and the Data Protection keys (sessions; they also encrypt the signing keys) in a configured folder - a restart never mints new signing keys that would make issued tokens unverifiable | `PartnerBank.Security/DataProtectionKeys.cs`, AS `Program.cs` (`SigningKeysPath`) |
+| 27 | **CI gates on every pull request**: vulnerable NuGet packages (HIGH / CRITICAL fails), Release build, the check tools compile, unit tests; `main` accepts only a squash-merged pull request with "CI result" green | `.github/workflows/ci.yml`, ruleset `main` |
 
 **Not done in this PoC** (a production partner would): certificate revocation checks (the PoC's root publishes no revocation list), address-based sign-in throttling, a real SMS / push provider for one-time codes, persistent grant and key stores (in memory / local files), a real credit decision, a Duende licence, and consent screens.

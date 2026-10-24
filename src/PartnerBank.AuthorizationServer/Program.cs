@@ -31,6 +31,9 @@ builder.Services.AddSingleton(settings);
 builder.WebHost.ConfigureKestrel(kestrel => kestrel.UsePartnerTls(serverCertificate));
 builder.Services.AddAuthentication().AddPartnerClientCertificates(trustRoot);
 
+// SEC: the sign-in cookie's keys - which also encrypt the stored signing keys - survive a container restart.
+builder.Services.AddPartnerDataProtection(settings.DataProtectionKeysPath, "PartnerBank.AuthorizationServer");
+
 // ┌─ ARCH ───────────────────────────────────────────────────────────────────────────────
 // │ The Partner Bank's customer accounts (sign-in, registration) in their own SQLite
 // │ database, apart from the API's business data. Passwords: ASP.NET Core Identity's
@@ -50,6 +53,15 @@ builder.Services
         // │ The issuer is configured, never derived from the request's Host header.
         // └──────────────────────────────────────────────────────────────────────────────────────
         options.IssuerUri = settings.IssuerUri;
+
+        // ┌─ ARCH + SEC ─────────────────────────────────────────────────────────────────────────
+        // │ The automatically managed signing keys in a configured folder (the image: a mounted
+        // │ volume) - a restart must not mint new keys and make every issued token unverifiable.
+        // │ Not configured (local runs): IdentityServer's default "keys" folder. The files are
+        // │ encrypted with the Data Protection keys above.
+        // └──────────────────────────────────────────────────────────────────────────────────────
+        if (!string.IsNullOrWhiteSpace(settings.SigningKeysPath))
+            options.KeyManagement.KeyPath = Environment.ExpandEnvironmentVariables(settings.SigningKeysPath);
 
         // ┌─ SEC ────────────────────────────────────────────────────────────────────────────────
         // │ Mutual TLS (RFC 8705): the mTLS endpoints live on their own address (the Mtls port),

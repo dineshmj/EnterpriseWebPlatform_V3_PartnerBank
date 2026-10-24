@@ -1,0 +1,117 @@
+# ┌─ :: ARCHITECTURE + SECURITY :: CI gates - what every change to main must pass ─────────────────
+# │ Why : A change reaches main - and from there an image and an environment - only when it
+# │       builds, its tests pass and it brings in no known-vulnerable dependency. Checked by CI
+# │       from the commit itself, never "it worked on my machine".
+# │ How : Restore -> vulnerable-package check (HIGH / CRITICAL fails) -> Release build of the
+# │       solution -> the two check tools build (single-file apps outside the solution) -> unit
+# │       tests (tst/PartnerBank.Api.Tests, no running service).
+# │       "CI result" sums them up: it is the ONE check branch protection requires. No path
+# │       filter, so it reports on every commit (a required check that never runs would block).
+# │       Actions are pinned to commit SHAs; the job token can only read.
+# │ Ref : doc/CI.md | OWASP A06, A08 | SLSA Build L2
+# └────────────────────────────────────────────────────────────────────────────────────────────────
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# SEC: the jobs only read the repository.
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  DOTNET_SDK_VERSION: '10.0.402'
+  DOTNET_NOLOGO: 'true'
+  DOTNET_CLI_TELEMETRY_OPTOUT: 'true'
+
+jobs:
+  dotnet:
+    name: .NET build, packages and unit tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: ${{ env.DOTNET_SDK_VERSION }}
+
+      - name: Restore
+        run: dotnet restore PartnerBank.slnx
+
+      # ┌─ SEC ────────────────────────────────────────────────────────────────────────────────────
+      # │ Every NuGet package the deployables use, transitive ones included, against the GitHub
+      # │ Advisory Database. HIGH or CRITICAL fails; lower ones are listed on the summary. The
+      # │ test project (under tst/) is in the solution but not deployed, so it is not gated.
+      # └──────────────────────────────────────────────────────────────────────────────────────────
+      - name: Vulnerable packages
+        run: |
+          set -euo pipefail
+          dotnet list PartnerBank.slnx package --vulnerable --include-transitive --format json > vulnerable.json
+          jq -r '[.projects[] | select(.path | test("/tst/") | not) | .frameworks[]?
+                   | (.topLevelPackages[]?, .transitivePackages[]?)
+                   | select(.vulnerabilities) | .vulnerabilities[]? as $v
+                   | {package: (.id + " " + .resolvedVersion), severity: $v.severity, url: $v.advisoryurl}]
+                 | unique | .[] | "| \(.package) | \(.severity) | \(.url) |"' vulnerable.json > findings.md
+          {
+            echo "### .NET vulnerable packages: $(wc -l < findings.md)"
+            if [ -s findings.md ]; then
+              echo '| Package | Severity | Advisory |'
+              echo '| --- | --- | --- |'
+              cat findings.md
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+          cat findings.md
+          if grep -q -E '\| (High|Critical) \|' findings.md; then
+            echo "::error::A HIGH or CRITICAL vulnerability in a NuGet package - see the summary."
+            exit 1
+          fi
+
+      - name: Build (Release)
+        run: dotnet build PartnerBank.slnx --configuration Release --no-restore
+
+      # ┌─ ARCH ─────────────────────────────────────────────────────────────────────────────────────
+      # │ HandshakeCheck and JourneyCheck act as EWP against a running Partner Bank, so they cannot
+      # │ run here - but they must still compile, or the next manual check finds out first.
+      # └──────────────────────────────────────────────────────────────────────────────────────────────
+      - name: Build the check tools
+        run: |
+          dotnet build tools/HandshakeCheck/HandshakeCheck.cs --configuration Release
+          dotnet build tools/JourneyCheck/JourneyCheck.cs --configuration Release
+
+      - name: Unit tests
+        run: dotnet test tst/PartnerBank.Api.Tests --configuration Release --no-build --logger "console;verbosity=normal"
+
+  # ┌─ ARCH ─────────────────────────────────────────────────────────────────────────────────────────
+  # │ The single required check: green only when every job above succeeded. Runs even when one
+  # │ failed or was skipped, so branch protection always gets an answer.
+  # └────────────────────────────────────────────────────────────────────────────────────────────────
+  result:
+    name: CI result
+    needs: [dotnet]
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    steps:
+      - name: All gates passed
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          echo "Job results: $RESULTS"
+          for result in $RESULTS; do
+            if [ "$result" != "success" ]; then
+              echo "::error::A CI gate did not pass ($RESULTS)."
+              exit 1
+            fi
+          done
