@@ -21,6 +21,9 @@ var trustRoot = settings.Tls.LoadTrustRoot();
 // └──────────────────────────────────────────────────────────────────────────────────────
 builder.WebHost.ConfigureKestrel(kestrel => kestrel.UsePartnerTls(serverCertificate));
 
+// SEC: the session cookie's keys survive a container restart (a mounted folder; see DataProtectionKeys).
+builder.Services.AddPartnerDataProtection(settings.DataProtectionKeysPath, "PartnerBank.Web");
+
 builder.Services
     .AddAuthentication(options =>
     {

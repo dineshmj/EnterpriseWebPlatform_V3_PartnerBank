@@ -1,0 +1,48 @@
+# ┌─ :: SECURITY + ARCHITECTURE :: What a container build may see ──────────────────────────────────
+# │ Why : Every Dockerfile builds from the repository root (the deployables share
+# │       src/PartnerBank.Security). Whatever is in the build context can be copied into an image
+# │       layer by mistake - and an image layer is published to the registry for good.
+# │ How : Development secrets, key material, local databases and local build output never enter
+# │       the context: a COPY of a whole project folder then cannot carry them into an image.
+# │ Ref : doc/Containers.md | OWASP A05 Security Misconfiguration | CWE-798 | CWE-538
+# └────────────────────────────────────────────────────────────────────────────────────────────────
+
+# ┌─ SEC ────────────────────────────────────────────────────────────────────────────────────────────
+# │ Development settings (the window's secret, demo customers) and key material of any kind,
+# │ including IdentityServer's signing keys (keys/).
+# └──────────────────────────────────────────────────────────────────────────────────────────────────
+**/appsettings.Development.json
+**/.env
+**/.env.*
+**/*.pem
+**/*.pfx
+**/*.p12
+**/*.key
+**/*.jwk
+**/*.password
+**/*.cer
+**/*.crt
+**/keys/
+**/smartzipper.exclude.json
+
+# Local SQLite databases: customer accounts and the Partner Bank's data.
+**/*.db
+**/*.db-shm
+**/*.db-wal
+
+# Local build output: the images restore and build their own.
+**/bin/
+**/obj/
+**/node_modules/
+**/*.user
+
+# Not part of any image.
+.git/
+.github/
+.vs/
+.vscode/
+**/*.zip
+doc/
+ps/
+tools/
+tst/

@@ -1,0 +1,35 @@
+# ┌─ :: SECURITY :: Keeping pinned things current ─────────────────────────────────────────────────
+# │ Why : The workflows pin actions to commit SHAs and the Dockerfiles pin base images by tag AND
+# │       digest. Pinning stops silent changes; without updates it would also stop security fixes.
+# │ How : Dependabot proposes a pull request a week per ecosystem (all base images in one); CI
+# │       and the image workflow build, scan and start each proposal before it can be merged.
+# │       NuGet stays with the CI gate (vulnerable packages) and EWP's routine, so both
+# │       organisations' .NET versions move together.
+# │ Ref : doc/Containers.md | OWASP A06 Vulnerable and Outdated Components
+# └────────────────────────────────────────────────────────────────────────────────────────────────
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+
+  - package-ecosystem: docker
+    # Every folder with a Dockerfile (doc/Containers.md, "Adding an image").
+    directories:
+      - /src/PartnerBank.Api
+      - /src/PartnerBank.AuthorizationServer
+      - /src/PartnerBank.Web
+    schedule:
+      interval: weekly
+    # ┌─ ARCH ─────────────────────────────────────────────────────────────────────────────────────
+    # │ Minor and patch updates only (security fixes, e.g. .NET 10.0.13 -> 10.0.14). A new major
+    # │ (.NET 10 -> 11) is a planned step: local install, every project and the images together.
+    # └────────────────────────────────────────────────────────────────────────────────────────────
+    ignore:
+      - dependency-name: '*'
+        update-types: ['version-update:semver-major']
+    # One pull request for every base image move: the 3 Dockerfiles share the same two bases.
+    groups:
+      base-images:
+        patterns: ['*']
