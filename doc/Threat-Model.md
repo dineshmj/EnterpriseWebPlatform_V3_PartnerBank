@@ -19,7 +19,7 @@ Scope: the Partner Bank's three deployables and their two boundaries - EWP's ser
 |---|---|---|
 | **TB1** EWP's server → Partner Bank (another organisation, over the network) | PAR, token, external API | mutual TLS on dedicated ports (6, 13), `tls_client_auth` with the PoC's root only (1), certificate-bound tokens checked on every call (4, 14), only EWP's client ID (15) |
 | **TB2** Customer's browser → Partner Bank (the network) | sign-in, authorize, window | public ports that never ask for a certificate (6), PAR-only authorization (2), PKCE (3), `__Host-` cookies (22), CSP and security headers (9), anti-forgery tokens (22) |
-| **TB3** Window → API (same machine) | internal API | localhost-only port (13), the customer's own token, only the window's client ID and the customer scope (16) |
+| **TB3** Window → API (same machine; in a cluster, the pod network) | internal API | localhost-only port (13) - in a cluster a NetworkPolicy that admits only the window and the authorization server (28) -, the customer's own token, only the window's client ID and the customer scope (16) |
 
 ## 3. Threats and mitigations
 
@@ -31,7 +31,7 @@ Scope: the Partner Bank's three deployables and their two boundaries - EWP's ser
 | T4 | An authorization code is intercepted | PKCE S256; the code is valid 60 s and only EWP's server, over mutual TLS, can exchange it | 3, 5 |
 | T5 | EWP opens the window for another customer | a window link is created only from the customer's own token; the API checks the signed-in subject when it opens | 17 |
 | T6 | A window link is reused or forwarded | random 256 bits, 2 minutes, opens once, only for the customer it names; one application per link | 17 |
-| T7 | EWP (or anyone with EWP's token) uses the window's internal API | localhost only; only the window's client ID with the customer scope - EWP's token is refused | 13, 16 |
+| T7 | EWP (or anyone with EWP's token) uses the window's internal API | localhost only (in a cluster: only the window's and the authorization server's pods may connect, no route through the Gateway); only the window's client ID with the customer scope - EWP's token is refused | 13, 16, 28 |
 | T8 | One organisation reads another's applications | EWP sees only the applications it referred (its client ID) | 15 |
 | T9 | Clickjacking, cross-site scripting, cross-site request forgery on the window | never framed, CSP without inline code, `__Host-` SameSite=Lax cookies, anti-forgery tokens | 9, 22 |
 | T10 | A fake authorization server (DNS or network tricks on the PC) | the API and the window trust the authorization server only through the PoC's root and the host name | 19 |

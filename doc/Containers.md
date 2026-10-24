@@ -76,10 +76,11 @@ Every image:
 
 | Mount / setting | What |
 |---|---|
-| `/etc/partner-bank/pki/` (read-only) | `partner-bank-server.pfx` + `partner-bank-server.pfx.password` (the TLS certificate for the Partner's host names) and `ewp-trust-root.cer`; the API and the authorization server also `ewp-request-signing.cer` (EWP's public request-signing certificate) |
+| `/etc/partner-bank/pki/` (read-only) | `partner-bank-server.pfx` + `partner-bank-server.pfx.password` (the TLS certificate for the Partner's host names - in a cluster also the API's internal address, [Kubernetes.md](Kubernetes.md)) and `ewp-trust-root.cer`; the API and the authorization server also `ewp-request-signing.cer` (EWP's public request-signing certificate) |
 | `/data` (writable volume, owner UID 1654 or `fsGroup`) | see below; must survive a restart |
 | `PartnerBank__ResolvePartnerHostsTo` | set to empty in the image: the Partner's host names resolve by DNS (`partner-auth...`, `partner-api...`) |
-| Kestrel endpoints | set in the image on every interface, same port numbers as on the home PC - except the API's internal port (known gaps) |
+| Kestrel endpoints | set in the image on every interface, same port numbers as on the home PC - except the API's internal port, which the image keeps on localhost; a deployment opens it together with a rule for who may reach it (the Helm chart: `Kestrel__Endpoints__Internal__Url` + a NetworkPolicy, [Kubernetes.md](Kubernetes.md) P4) |
+| Health | `/health/live` and `/health/ready` (readiness: the SQLite database opens) over https on 47401 (authorization server), 47404 (API - the external port requires a client certificate) and 47402 (window); names and statuses only in the answer |
 
 Per image:
 
@@ -97,8 +98,6 @@ each have their own. A second instance needs the production stores of residual r
 
 | Gap | Effect | Planned fix |
 |---|---|---|
-| The API's internal port keeps `https://localhost:47404` from `appsettings.json` - the image does not open it to the network | In separate containers the window and the authorization server (the consent page's gold price) cannot reach it; today's protection is "same machine only" (control 13) | Decide at the Helm step: open it on the pod network with a NetworkPolicy that admits only the window and the authorization server (the internal API also requires the window's customer token, control 16), or run the window next to the API in one pod |
-| No health endpoints | The orchestrator can only check that the port is open | `/health/live` and `/health/ready` (SQLite reachable) on the public ports, allowed by the port guards |
 | The Data Protection keys are stored unencrypted in `/data` (`DataProtectionKeys.cs`, DEBT) | Whoever can read the volume can decrypt sessions and the stored signing keys | Wrap them with a key from a key vault; until then the volume's access rights protect them |
 | No Duende licence (README, "Not done") | IdentityServer logs that it runs unlicensed; allowed for development and testing only | A licence before any real use |
 | The Dockerfile front end (`# syntax=docker/dockerfile:1.7`) is pinned by tag only | A re-pushed front-end tag could change how a Dockerfile is read | As in EWP: pin it by digest once Dependabot can move that pin |

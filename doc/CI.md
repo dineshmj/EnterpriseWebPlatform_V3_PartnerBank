@@ -16,7 +16,8 @@ path filter: a required check must always report).
 | Job | What it checks | Fails when |
 |---|---|---|
 | .NET | Restore -> vulnerable packages (`dotnet list package --vulnerable --include-transitive`; the deployables' packages, not the test project's) -> Release build of `PartnerBank.slnx` -> the two check tools build (`tools/HandshakeCheck`, `tools/JourneyCheck` - single-file apps outside the solution) -> unit tests (`tst/PartnerBank.Api.Tests`) | A HIGH or CRITICAL advisory; a build error; a failing test. Lower advisories are listed on the run's summary |
-| **CI result** | Sums up the job above | It did not succeed. **This is the one check branch protection requires** |
+| Helm chart | [check-charts.sh](../deploy/helm/check-charts.sh): `helm lint --strict` + `helm template` of `deploy/helm/partner-bank` with every `values-*.yaml` -> kubeconform (strict) against the Kubernetes 1.34 schemas and the Gateway API schemas (CRDs catalog at a pinned commit) -> the chart must refuse to render without each required value. Helm 4.3.1 and kubeconform 0.8.0, each kept only with its published SHA-256 - the same as EWP's job ([Kubernetes.md](Kubernetes.md)) | A lint error; an object that does not match its schema (strict: unknown fields too); a required value no longer refused |
+| **CI result** | Sums up the jobs above | It did not succeed. **This is the one check branch protection requires** |
 
 Not gated here, and why:
 

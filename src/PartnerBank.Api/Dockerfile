@@ -49,7 +49,8 @@ COPY --from=build --chown=1654:1654 /data /data
 # │ Where things are inside the container - no secret, no environment's address:
 # │  - External (EWP's server, client certificate REQUIRED) on every interface. The internal port
 # │    keeps its localhost-only address from appsettings.json: the image never opens it to the
-# │    network by itself (doc/Containers.md, known gaps).
+# │    network by itself. A deployment opens it together with a rule for who may reach it - the
+# │    Helm chart: Kestrel__Endpoints__Internal__Url + a NetworkPolicy (doc/Kubernetes.md).
 # │  - No fixed address for the Partner's host names: each deployable is its own container, so
 # │    they are resolved by DNS (an empty value turns ResolvePartnerHostsTo off).
 # └──────────────────────────────────────────────────────────────────────────────────────────────────
@@ -67,7 +68,8 @@ EXPOSE 47403
 USER $APP_UID
 
 # ┌─ NOTE ───────────────────────────────────────────────────────────────────────────────────────────
-# │ No HEALTHCHECK: the chiseled image has no shell or curl, and the Partner Bank has no health
-# │ endpoints yet (doc/Containers.md, known gaps).
+# │ No HEALTHCHECK: the chiseled image has no shell or curl. The orchestrator probes /health/live
+# │ and /health/ready on the INTERNAL port: the external one requires a client certificate,
+# │ which a probe does not have.
 # └──────────────────────────────────────────────────────────────────────────────────────────────────
 ENTRYPOINT ["dotnet", "PartnerBank.Api.dll"]

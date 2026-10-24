@@ -1,0 +1,48 @@
+{{- /*
+┌─ :: ARCHITECTURE + SECURITY :: The way in: TLS passed through, never ended at the Gateway ──────
+│ Why : EWP's tokens are bound to the client certificate of the connection (RFC 8705) and the
+│       authorization server authenticates EWP by that certificate - the pod must see it in the
+│       handshake itself (doc/Containers.md, decision 4). A Gateway that ended TLS would have to
+│       forward the certificate in a header: one more party trusted with EWP's identity.
+│ How : One TLSRoute (Gateway API, standard channel) per public port: the Gateway reads only the
+│       SNI host name and passes the encrypted connection to the Service; each route attaches to
+│       its own TLS listener (mode Passthrough, the same port number) of the environment's Gateway.
+│       The Partner's TLS certificate therefore lives in the pod (the PKI Secret), not at the
+│       Gateway. The API's internal port has no route.
+│ Ref : doc/Kubernetes.md | doc/Architecture.md 5 | RFC 8705 | OWASP A02, A07
+└────────────────────────────────────────────────────────────────────────────────────────────────
+*/ -}}
+{{- $root := . -}}
+{{- $g := .Values.global -}}
+{{- if $g.gateway.enabled }}
+{{- $parents := required "global.gateway.parentRefs is required when the gateway is enabled" $g.gateway.parentRefs }}
+{{- range $name, $c := .Values.components }}
+{{- $ctx := dict "root" $root "name" $name }}
+{{- range $port := $c.ports }}
+{{- if $port.listener }}
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: TLSRoute
+metadata:
+  name: {{ $name }}-{{ $port.name }}
+  labels:
+    {{- include "pb.labels" $ctx | nindent 4 }}
+spec:
+  parentRefs:
+    {{- range $parents }}
+    - name: {{ .name }}
+      {{- with .namespace }}
+      namespace: {{ . }}
+      {{- end }}
+      sectionName: {{ $port.listener }}
+    {{- end }}
+  hostnames:
+    - {{ include "pb.publicHost" (list $root $name) }}
+  rules:
+    - backendRefs:
+        - name: {{ $name }}
+          port: {{ $port.port }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- end }}

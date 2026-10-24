@@ -1,0 +1,19 @@
+# ┌─ :: ARCHITECTURE :: The quarterly cloud demo (short-lived, torn down after each run) ─────────
+# │ Why : The demo runs EWP and its Partner Bank side by side, in one cluster but in their own
+# │       namespaces - two organisations that meet only through the Gateway.
+# │ How : Only what differs from values.yaml. The values marked <set by the pipeline> come from
+# │       Terraform's outputs at install time (--set), never committed. The host names match
+# │       EWP's values-demo.yaml (global.partnerBank).
+# │ Ref : doc/Kubernetes.md
+# └────────────────────────────────────────────────────────────────────────────────────────────────
+
+global:
+  # <set by the pipeline>: --set global.domain=... --set global.image.tag=<commit SHA>
+  domain: demo.ewp.example
+  image:
+    tag: "0000000000000000000000000000000000000000"
+
+  gateway:
+    parentRefs:
+      - name: ewp-gateway
+        namespace: gateway-system

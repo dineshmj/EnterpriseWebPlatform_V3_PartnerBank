@@ -1,0 +1,118 @@
+# ┌─ :: ARCHITECTURE + SECURITY :: The Partner Bank's deployment, as data ───────────────────────
+# │ Why : One place says, per deployable, what is its own: its ports and who may reach each one,
+# │       its settings, which secret it reads. Security context, probes, volumes and network rules
+# │       are the same for all three and live in the templates.
+# │ How : components.<key>: the key is the Service name (partner-api, as in its internal address
+# │       https://partner-api:47404) and, with the domain, the public host name.
+# │         image       the image name in the registry (.github/container-images.json)
+# │         ports       name, port (container = Service = public port, the home PC's numbers),
+# │                     listener: the Gateway listener that passes TLS through to it (public), or
+# │                     allowFrom: the components that may connect (pod network only)
+# │         probePort   the port the kubelet probes (one that never requires a client certificate)
+# │         pkiFiles    the files of the PKI Secret it needs (doc/Containers.md, run-time contract)
+# │         env         plain settings; values are templates ({{ include "pb.public" ... }})
+# │         secretRefs  NAME: {secret, key} - never a value
+# │       SEC: no value here is a secret. Secrets exist only in the cluster (doc/Kubernetes.md
+# │       lists every one); a missing key stops the pod with that key's name.
+# │ Ref : doc/Kubernetes.md | doc/Containers.md (run-time contract)
+# └────────────────────────────────────────────────────────────────────────────────────────────────
+
+global:
+  # The public DNS zone: partner-auth.<domain>, partner-api.<domain>, partner-products.<domain>. Required.
+  domain: ""
+  image:
+    registry: ghcr.io/dineshmj
+    # The full commit SHA the images were built from (doc/Containers.md, decision 1). Required.
+    tag: ""
+    pullPolicy: IfNotPresent
+    pullSecrets: []
+  # Requests sized for the deployables at rest; no CPU limit (throttling hurts latency more than
+  # it protects), a memory limit so a leak restarts one pod instead of starving a node.
+  resources:
+    requests:
+      cpu: 25m
+      memory: 128Mi
+    limits:
+      memory: 384Mi
+  # The class of the /data volumes ("" = the cluster's default).
+  storageClassName: ""
+  # SEC: the TLS certificate for the Partner's host names, its password file, EWP's trust root
+  # and EWP's request-signing certificate (public part) - files, mounted read-only.
+  pki:
+    secret: partner-bank-pki
+  # SEC: the products window's client secret at the authorization server (key "secret") - ONE
+  # Secret for both sides, so they cannot drift apart.
+  windowClient:
+    secret: partner-bank-window-client
+  # EWP's callback addresses for the Partner's sign-in (code flow). Empty: EWP uses client
+  # credentials only (the distributor API), and no redirect is registered.
+  ewp:
+    redirectUris: []
+  gateway:
+    enabled: true
+    # The environment's Gateway (TLS listeners in Passthrough mode, one per public port; the
+    # listener names are the ports' "listener" below), e.g.
+    #   - name: ewp-gateway
+    #     namespace: gateway-system
+    parentRefs: []
+    # The Gateway's pods' namespace: the only place the public ports accept connections from.
+    namespaceSelector:
+      matchLabels:
+        kubernetes.io/metadata.name: gateway-system
+  networkPolicies:
+    enabled: true
+
+components:
+
+  # ── Authorization server: sign-in, consent, PAR / token (EWP: mutual TLS) ───────────────────
+  partner-auth:
+    image: partner-bank-authorization-server
+    ports:
+      - {name: public, port: 47401, listener: partner-auth}
+      - {name: mtls, port: 47411, listener: partner-auth-mtls}
+    probePort: public
+    pkiFiles: [partner-bank-server.pfx, partner-bank-server.pfx.password, ewp-trust-root.cer, ewp-request-signing.cer]
+    persistence: {size: 1Gi}
+    ewpRedirectUris: true
+    env:
+      PartnerBank__IssuerUri: '{{ include "pb.public" (list . "partner-auth" 47401) }}'
+      PartnerBank__MtlsBaseUrl: '{{ include "pb.public" (list . "partner-auth" 47411) }}'
+      PartnerBank__ApiInternalBaseUrl: https://partner-api:47404
+      PartnerBank__ProductsWindowClient__RedirectUris__0: '{{ include "pb.public" (list . "partner-products" 47402) }}/signin-oidc'
+      PartnerBank__ProductsWindowClient__PostLogoutRedirectUris__0: '{{ include "pb.public" (list . "partner-products" 47402) }}/signout-callback-oidc'
+    secretRefs:
+      PartnerBank__ProductsWindowClient__Secret: {secret: '{{ .Values.global.windowClient.secret }}', key: secret}
+
+  # ── API: the Partner Bank's data; external (EWP, mutual TLS) and internal (its own window) ────
+  partner-api:
+    image: partner-bank-api
+    ports:
+      - {name: external, port: 47403, listener: partner-api}
+      # SEC: never through the Gateway - only the window and the consent page reach it.
+      - {name: internal, port: 47404, allowFrom: [partner-products, partner-auth]}
+    probePort: internal
+    pkiFiles: [partner-bank-server.pfx, partner-bank-server.pfx.password, ewp-trust-root.cer, ewp-request-signing.cer]
+    persistence: {size: 1Gi}
+    env:
+      # SEC: the image keeps the internal port on localhost; the chart opens it on the pod
+      # network together with the NetworkPolicy that limits who reaches it (doc/Kubernetes.md).
+      Kestrel__Endpoints__Internal__Url: https://+:47404
+      PartnerBank__Authority: '{{ include "pb.public" (list . "partner-auth" 47401) }}'
+      PartnerBank__ExternalBaseUrl: '{{ include "pb.public" (list . "partner-api" 47403) }}'
+      PartnerBank__InternalBaseUrl: https://partner-api:47404
+      PartnerBank__WindowBaseUrl: '{{ include "pb.public" (list . "partner-products" 47402) }}'
+
+  # ── Products window: the customer's own Partner Bank pages (no data of its own) ──────────────
+  partner-products:
+    image: partner-bank-web
+    ports:
+      - {name: window, port: 47402, listener: partner-products}
+    probePort: window
+    pkiFiles: [partner-bank-server.pfx, partner-bank-server.pfx.password, ewp-trust-root.cer]
+    # The Data Protection keys (session cookies) must survive a restart.
+    persistence: {size: 256Mi}
+    env:
+      PartnerBank__Authority: '{{ include "pb.public" (list . "partner-auth" 47401) }}'
+      PartnerBank__ApiInternalBaseUrl: https://partner-api:47404
+    secretRefs:
+      PartnerBank__WindowClientSecret: {secret: '{{ .Values.global.windowClient.secret }}', key: secret}

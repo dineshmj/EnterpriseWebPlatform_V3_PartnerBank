@@ -24,14 +24,14 @@ public static class PortGuard
         });
 
     // ┌─ SEC ────────────────────────────────────────────────────────────────────────────────
-    // │ Each port serves exactly ONE path prefix (e.g. EWP's /api on the mutual-TLS port, the
-    // │ window's /internal on the localhost-only port): a request for anything else - or on a
-    // │ port not listed - answers 404.
+    // │ Each port serves only ITS path prefixes (e.g. EWP's /api on the mutual-TLS port, the
+    // │ window's /internal and the probes' /health on the internal port): a request for
+    // │ anything else - or on a port not listed - answers 404.
     // └──────────────────────────────────────────────────────────────────────────────────────
-    public static IApplicationBuilder UsePathPrefixPerPort(this IApplicationBuilder app, IReadOnlyDictionary<int, PathString> prefixByPort) =>
+    public static IApplicationBuilder UsePathPrefixPerPort(this IApplicationBuilder app, IReadOnlyDictionary<int, PathString[]> prefixesByPort) =>
         app.Use(async (context, next) =>
         {
-            if (!prefixByPort.TryGetValue(context.Connection.LocalPort, out var prefix) || !context.Request.Path.StartsWithSegments(prefix))
+            if (!prefixesByPort.TryGetValue(context.Connection.LocalPort, out var prefixes) || !prefixes.Any(prefix => context.Request.Path.StartsWithSegments(prefix)))
             {
                 context.Response.StatusCode = StatusCodes.Status404NotFound;
                 return;

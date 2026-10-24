@@ -1,0 +1,136 @@
+{{- $root := . -}}
+{{- $g := .Values.global -}}
+{{- range $name, $c := .Values.components }}
+{{- $ctx := dict "root" $root "name" $name -}}
+{{- $probePort := include "pb.probePort" (dict "c" $c) | required (printf "components.%s.probePort names no port" $name) }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "pb.labels" $ctx | nindent 4 }}
+spec:
+  # ┌─ ARCH + RESIL ───────────────────────────────────────────────────────────────────────────
+  # │ ONE instance each, never more: SQLite is a file, the authorization server's grants and the
+  # │ staff-view handoffs are in memory, the signing keys are files (doc/Containers.md,
+  # │ "Replicas"). Recreate: the old pod lets go of the /data volume before the new one starts.
+  # │ No PodDisruptionBudget - with one instance it would only block node drains.
+  # └──────────────────────────────────────────────────────────────────────────────────────────
+  replicas: 1
+  revisionHistoryLimit: 3
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "pb.selector" $ctx | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "pb.labels" $ctx | nindent 8 }}
+    spec:
+      # ┌─ SEC ────────────────────────────────────────────────────────────────────────────────
+      # │ Least privilege: no Kubernetes API token (nothing here calls the API), non-root with
+      # │ the image's own user (1654), the runtime's default seccomp profile, no service-link
+      # │ variables. fsGroup makes the /data volume writable for that user.
+      # └──────────────────────────────────────────────────────────────────────────────────────
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1654
+        runAsGroup: 1654
+        fsGroup: 1654
+        seccompProfile:
+          type: RuntimeDefault
+      {{- with $g.image.pullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: {{ $name }}
+          image: {{ include "pb.image" (dict "root" $root "c" $c) }}
+          imagePullPolicy: {{ $g.image.pullPolicy }}
+          ports:
+            {{- range $c.ports }}
+            - name: {{ .name }}
+              containerPort: {{ .port }}
+              protocol: TCP
+            {{- end }}
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          env:
+            # SEC: only the names this deployable is reached by - the public one (through the
+            # Gateway) and the Service name (pod network, probes).
+            - name: AllowedHosts
+              value: {{ include "pb.publicHost" (list $root $name) }};{{ $name }}
+            {{- if $c.ewpRedirectUris }}
+            {{- range $i, $uri := $g.ewp.redirectUris }}
+            - name: PartnerBank__EwpClient__RedirectUris__{{ $i }}
+              value: {{ $uri | quote }}
+            {{- end }}
+            {{- end }}
+            {{- range $k, $v := $c.env }}
+            - name: {{ $k }}
+              value: {{ tpl (toString $v) $root | quote }}
+            {{- end }}
+            {{- range $k, $ref := $c.secretRefs }}
+            - name: {{ $k }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ tpl $ref.secret $root }}
+                  key: {{ $ref.key }}
+            {{- end }}
+          # RESIL: start-up gets up to 2.5 minutes (database created, signing keys made on the
+          # first start); then a hung process is restarted, and one whose database does not open
+          # stops getting traffic. TLS ends in the pod, so the probes use https (the kubelet does
+          # not check the certificate); the Host header satisfies AllowedHosts.
+          startupProbe:
+            httpGet:
+              {{- include "pb.probeGet" (dict "path" "/health/live" "port" $probePort "host" $name) | nindent 14 }}
+            periodSeconds: 5
+            failureThreshold: 30
+          livenessProbe:
+            httpGet:
+              {{- include "pb.probeGet" (dict "path" "/health/live" "port" $probePort "host" $name) | nindent 14 }}
+            periodSeconds: 20
+            timeoutSeconds: 3
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              {{- include "pb.probeGet" (dict "path" "/health/ready" "port" $probePort "host" $name) | nindent 14 }}
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          resources:
+            {{- toYaml (mergeOverwrite (deepCopy $g.resources) ($c.resources | default dict)) | nindent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: pki
+              mountPath: /etc/partner-bank/pki
+              readOnly: true
+            - name: data
+              mountPath: /data
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 64Mi
+        # SEC: only the files this deployable needs from the PKI Secret (the window never sees
+        # EWP's request-signing certificate), read-only for its user.
+        - name: pki
+          secret:
+            secretName: {{ $g.pki.secret }}
+            defaultMode: 0440
+            items:
+              {{- range $c.pkiFiles }}
+              - key: {{ . }}
+                path: {{ . }}
+              {{- end }}
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ $name }}-data
+{{- end }}

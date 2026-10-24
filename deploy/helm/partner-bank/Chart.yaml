@@ -1,0 +1,7 @@
+apiVersion: v2
+name: partner-bank
+description: The Partner Bank (EWP's partner) - authorization server, API and products window, each with its own TLS end, in one namespace.
+type: application
+version: 0.1.0
+appVersion: "3"
+kubeVersion: ">= 1.34.0-0"

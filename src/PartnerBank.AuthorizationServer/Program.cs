@@ -130,6 +130,10 @@ builder.Services
 
 builder.Services.AddRazorPages();
 
+// OBS: /health/live and /health/ready (the customer database opens), on the public port only (port guard).
+builder.Services.AddPartnerHealthChecks()
+    .AddDbContextCheck<CustomerDbContext>("database", tags: [HealthEndpoints.ReadyTag]);
+
 var app = builder.Build();
 
 using (var scope = app.Services.CreateScope())
@@ -171,6 +175,7 @@ app.UseRouting();
 app.UseIdentityServer();
 app.UseAuthorization();
 app.MapRazorPages();
+app.MapPartnerHealthEndpoints();
 
 app.Logger.LogInformation("Partner Bank authorization server: issuer {Issuer}, TLS certificate {Subject}, trusting client certificates from {Root}.",
     settings.IssuerUri, serverCertificate.Subject, trustRoot.Subject);

@@ -82,6 +82,9 @@ builder.Services
 
 builder.Services.AddRazorPages();
 
+// OBS: /health/live and /health/ready - the window keeps no data, so "ready" = the process answers.
+builder.Services.AddPartnerHealthChecks();
+
 var app = builder.Build();
 
 if (!app.Environment.IsDevelopment())
@@ -97,6 +100,7 @@ app.UseRouting();
 app.UseAuthentication();
 app.UseAuthorization();
 app.MapRazorPages();
+app.MapPartnerHealthEndpoints();
 
 app.Logger.LogInformation("Partner Bank window: API (internal) {Api}, authorization server {Authority}.", settings.ApiInternalBaseUrl, settings.Authority);
 
