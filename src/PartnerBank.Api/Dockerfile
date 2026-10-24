@@ -53,6 +53,8 @@ COPY --from=build --chown=1654:1654 /data /data
 # │  - No fixed address for the Partner's host names: each deployable is its own container, so
 # │    they are resolved by DNS (an empty value turns ResolvePartnerHostsTo off).
 # └──────────────────────────────────────────────────────────────────────────────────────────────────
+# SEC: DL3064 reacts to the words Password / Keys in these NAMES; every value is a file path, never a secret.
+# hadolint ignore=DL3064
 ENV Kestrel__Endpoints__External__Url=https://+:47403 \
     ConnectionStrings__PartnerBank="Data Source=/data/partner-bank.db" \
     PartnerBank__ResolvePartnerHostsTo="" \

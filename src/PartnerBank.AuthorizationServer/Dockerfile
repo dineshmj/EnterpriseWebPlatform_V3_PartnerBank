@@ -45,6 +45,8 @@ COPY --from=build --chown=1654:1654 /data /data
 # │ and Data Protection keys in /data, so a restart keeps them (tokens stay verifiable, sessions
 # │ stay valid). The Partner's host names resolve by DNS (ResolvePartnerHostsTo off).
 # └──────────────────────────────────────────────────────────────────────────────────────────────────
+# SEC: DL3064 reacts to the words Password / Keys in these NAMES; every value is a file path, never a secret.
+# hadolint ignore=DL3064
 ENV Kestrel__Endpoints__Public__Url=https://+:47401 \
     Kestrel__Endpoints__Mtls__Url=https://+:47411 \
     ConnectionStrings__PartnerIdentity="Data Source=/data/partner-identity.db" \

@@ -42,6 +42,8 @@ COPY --from=build --chown=1654:1654 /data /data
 # │ port on every interface (never asks for a client certificate); the session cookie's keys in
 # │ /data; the Partner's host names resolve by DNS (ResolvePartnerHostsTo off).
 # └──────────────────────────────────────────────────────────────────────────────────────────────────
+# SEC: DL3064 reacts to the words Password / Keys in these NAMES; every value is a file path, never a secret.
+# hadolint ignore=DL3064
 ENV Kestrel__Endpoints__Window__Url=https://+:47402 \
     PartnerBank__DataProtectionKeysPath=/data/data-protection-keys \
     PartnerBank__ResolvePartnerHostsTo="" \
