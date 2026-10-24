@@ -47,7 +47,7 @@ at EWP's counter and never signs in here; see doc/Architecture.md D14):
 | Deployable | Ports | What |
 |---|---|---|
 | `PartnerBank.AuthorizationServer` - Duende IdentityServer 8 | 47401 public (people, the Partner's window), 47411 mutual TLS (EWP's server) | sign-in, PAR, tokens |
-| `PartnerBank.Api` - ASP.NET Core minimal APIs, **SQLite (`partner-bank.db`)** | 47403 external (EWP's server, mutual TLS), 47404 internal (the Partner's window - **localhost only**) | the Partner Bank's domain microservice: it alone owns the data |
+| `PartnerBank.Api` - ASP.NET Core minimal APIs, **SQLite (`partner-bank.db`)** | 47403 external (EWP's server, mutual TLS), 47404 internal (the Partner's window - **localhost only**; in a cluster only the window's and the authorization server's pods) | the Partner Bank's domain microservice: it alone owns the data |
 | `PartnerBank.Web` - ASP.NET Core Razor Pages | 47402 (the customer's browser) | the Partner's window: holds no data, calls the internal API with the customer's own token |
 | `PartnerBank.Security` - class library | - | what they share: TLS, client certificates, trusted back-channel, security headers, port guards |
 
@@ -138,7 +138,7 @@ Customer accounts live in the authorization server's own database, `src\PartnerB
 
 ## Containers and CI
 
-Every pull request runs the CI gates (build, unit tests, vulnerable packages - [doc/CI.md](doc/CI.md)); `main` takes only a squash-merged pull request with "CI result" green. GitHub Actions builds the three container images (`partner-bank-authorization-server`, `partner-bank-api`, `partner-bank-web`), scans them, starts each one locked down with throw-away certificates, and publishes them to GHCR from `main` only. The images keep TLS inside the deployable (mutual TLS needs the client certificate in the handshake); an environment mounts the certificates and one `/data` volume. Run-time contract and known gaps: [doc/Containers.md](doc/Containers.md). Running locally is unchanged (`Start-PartnerBank.ps1`).
+Every pull request runs the CI gates (build, unit tests, vulnerable packages - [doc/CI.md](doc/CI.md)); `main` takes only a squash-merged pull request with "CI result" green. GitHub Actions builds the three container images (`partner-bank-authorization-server`, `partner-bank-api`, `partner-bank-web`), scans them, starts each one locked down with throw-away certificates, and publishes them to GHCR from `main` only. The images keep TLS inside the deployable (mutual TLS needs the client certificate in the handshake); an environment mounts the certificates and one `/data` volume. Run-time contract and known gaps: [doc/Containers.md](doc/Containers.md). In a Kubernetes cluster the Helm chart [deploy/helm/partner-bank](deploy/helm/partner-bank) runs them (TLS passed through at the Gateway, one instance each; the secrets an environment creates: [doc/Kubernetes.md](doc/Kubernetes.md)); CI renders and schema-checks it on every pull request. Running locally is unchanged (`Start-PartnerBank.ps1`).
 
 ## Security controls
 
@@ -171,7 +171,7 @@ Every pull request runs the CI gates (build, unit tests, vulnerable packages - [
 
 | # | Control | Where |
 |---|---|---|
-| 13 | **Each port serves one path prefix**: `/api` only on the external port (a client certificate is REQUIRED in the TLS handshake), `/internal` only on the internal port, which listens on **localhost only** | `Program.cs`, `appsettings.json`, `PartnerBank.Security/PortGuard.cs` |
+| 13 | **Each port serves one path prefix**: `/api` only on the external port (a client certificate is REQUIRED in the TLS handshake), `/internal` (and the probes' `/health`) only on the internal port, which listens on **localhost only** (in a cluster: control 28) | `Program.cs`, `appsettings.json`, `PartnerBank.Security/PortGuard.cs` |
 | 14 | **Bound tokens on every external call**: an access token (`at+jwt`, audience `partner-api`) is accepted only over a connection whose client certificate chains to the trust root AND matches the token's `cnf.x5t#S256` - the same token over another certificate is refused | `Security/BoundTokens.cs` |
 | 15 | **Only EWP on the external API** (its client ID), each endpoint with its scope; EWP sees only the applications it referred | `Program.cs` (policies), `Api/ExternalApi.cs` |
 | 16 | **Only the Partner's window on the internal API** (its client ID, the `partner.customer` scope, a person in the token); every operation is for the customer the token names - EWP's token is refused there | `Program.cs` (policies), `Api/InternalApi.cs` |
@@ -205,8 +205,15 @@ Every pull request runs the CI gates (build, unit tests, vulnerable packages - [
 |---|---|---|
 | 23 | **Images built only by CI, from a commit**: hadolint, Trivy (a HIGH / CRITICAL vulnerability with a fix, or any secret, stops the image), a start check, and only then - on `main` - published with an SBOM and SLSA provenance, tagged with the commit SHA; actions pinned to commit SHAs | `.github/workflows/container-images.yml` |
 | 24 | **Nothing secret in an image**: development settings, key material (certificates, passwords, IdentityServer's `keys/`) and the local databases never enter the build context; the image runs as `Production` (no demo customers, no codes on the page); certificates are mounted at run time, the two client secrets come from a secret store | `.dockerignore`, `src/*/Dockerfile` |
-| 25 | **A locked-down runtime**: chiseled base pinned by tag and digest (no shell, no package manager), non-root UID 1654, program files read-only, ONE writable folder (`/data`); TLS still ends in the deployable itself, so the client-certificate checks and certificate-bound tokens (1, 4, 14) work unchanged in a container; the API's internal port stays localhost-only in the image. CI starts every image that way (read-only, no capabilities) with a throw-away PKI before publishing it | `src/*/Dockerfile`, `.github/scripts/start-check.sh` |
+| 25 | **A locked-down runtime**: chiseled base pinned by tag and digest (no shell, no package manager), non-root UID 1654, program files read-only, ONE writable folder (`/data`); TLS still ends in the deployable itself, so the client-certificate checks and certificate-bound tokens (1, 4, 14) work unchanged in a container; the API's internal port stays localhost-only in the image (only a deployment opens it, with control 28). CI starts every image that way (read-only, no capabilities) with a throw-away PKI before publishing it | `src/*/Dockerfile`, `.github/scripts/start-check.sh` |
 | 26 | **Keys survive a restart**: IdentityServer's signing keys and the Data Protection keys (sessions; they also encrypt the signing keys) in a configured folder - a restart never mints new signing keys that would make issued tokens unverifiable | `PartnerBank.Security/DataProtectionKeys.cs`, AS `Program.cs` (`SigningKeysPath`) |
 | 27 | **CI gates on every pull request**: vulnerable NuGet packages (HIGH / CRITICAL fails), Release build, the check tools compile, unit tests; `main` accepts only a squash-merged pull request with "CI result" green | `.github/workflows/ci.yml`, ruleset `main` |
+
+**Kubernetes** ([doc/Kubernetes.md](doc/Kubernetes.md))
+
+| # | Control | Where |
+|---|---|---|
+| 28 | **TLS passed through, the internal port guarded by the network**: the Gateway routes each public port by its host name without ending TLS (EWP's client certificate still reaches the deployable, controls 1, 4, 14); every Partner Bank pod refuses connections by default - a public port admits only the Gateway's namespace, the API's internal port only the window's and the authorization server's pods and has no route; EWP's namespace reaches nothing directly | `deploy/helm/partner-bank/templates/routes.yaml`, `networkpolicies.yaml` |
+| 29 | **Locked-down pods, secrets by name**: non-root 1654, read-only root file system, no capabilities or privilege escalation, `RuntimeDefault` seccomp, no Kubernetes token; each pod mounts only the PKI files it needs; the chart holds no secret and refuses to render without the domain, the image's commit and the Gateway. Health endpoints (`/health/live`, `/health/ready`) are anonymous but answer names and statuses only | `deploy/helm/partner-bank/templates/deployments.yaml`, `PartnerBank.Security/HealthEndpoints.cs` |
 
 **Not done in this PoC** (a production partner would): certificate revocation checks (the PoC's root publishes no revocation list), address-based sign-in throttling, a real SMS / push provider for one-time codes, persistent grant and key stores (in memory / local files), a real credit decision, a Duende licence, and consent screens.

@@ -54,5 +54,5 @@ EXPOSE 47402
 # Numeric (1654), so Kubernetes runAsNonRoot can verify it.
 USER $APP_UID
 
-# No HEALTHCHECK: no shell or curl in the chiseled image, and no health endpoints yet.
+# No HEALTHCHECK: no shell or curl in the chiseled image; the orchestrator probes /health/live and /health/ready on 47402.
 ENTRYPOINT ["dotnet", "PartnerBank.Web.dll"]

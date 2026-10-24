@@ -1,0 +1,67 @@
+{{- /*
+┌─ :: SECURITY :: Who may open a connection to which port ──────────────────────────────────────
+│ Why : On the home PC the API's internal port is bound to localhost (control 13). In a cluster
+│       each deployable is its own pod, so the window and the consent page reach that port over
+│       the pod network - which must not make it reachable for anyone else.
+│ How : Every Partner Bank pod refuses incoming connections by default. Per PORT:
+│        - a public port (listener) admits only the Gateway's namespace - the Gateway passes the
+│          TLS connection through, so EWP's client certificate still reaches the pod;
+│        - the API's internal port admits only the window and the authorization server pods,
+│          and every /internal call still needs the customer's token (control 16).
+│       Nothing else in the cluster - EWP's namespace included - reaches a Partner Bank pod
+│       directly: EWP calls the public addresses like any outside client.
+│       DEBT: outgoing traffic is not limited yet (the deployables call their authorization
+│       server through the Gateway); an egress policy belongs with the environment's addresses
+│       (Terraform step). The kubelet's probes come from the node; CNIs admit them.
+│ Ref : doc/Kubernetes.md | doc/Architecture.md 5 | OWASP A01, A05 | NIST SP 800-204
+└────────────────────────────────────────────────────────────────────────────────────────────────
+*/ -}}
+{{- if .Values.global.networkPolicies.enabled }}
+{{- $root := . -}}
+{{- $g := .Values.global -}}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: partner-bank-default-deny-ingress
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/part-of: partner-bank
+      app.kubernetes.io/instance: {{ $root.Release.Name }}
+  policyTypes: ["Ingress"]
+{{- range $name, $c := .Values.components }}
+{{- $ctx := dict "root" $root "name" $name }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "pb.labels" $ctx | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "pb.selector" $ctx | nindent 6 }}
+  policyTypes: ["Ingress"]
+  ingress:
+    {{- range $c.ports }}
+    {{- if .listener }}
+    - from:
+        - namespaceSelector:
+            {{- toYaml $g.gateway.namespaceSelector | nindent 12 }}
+      ports:
+        - port: {{ .port }}
+    {{- end }}
+    {{- if .allowFrom }}
+    - from:
+        {{- range .allowFrom }}
+        - podSelector:
+            matchLabels:
+              {{- include "pb.selector" (dict "root" $root "name" .) | nindent 14 }}
+        {{- end }}
+      ports:
+        - port: {{ .port }}
+    {{- end }}
+    {{- end }}
+{{- end }}
+{{- end }}

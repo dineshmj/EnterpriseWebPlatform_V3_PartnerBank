@@ -1,0 +1,23 @@
+{{- $root := . -}}
+{{- range $name, $c := .Values.components }}
+{{- $ctx := dict "root" $root "name" $name }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "pb.labels" $ctx | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "pb.selector" $ctx | nindent 4 }}
+  # The same numbers as the container and the public address (templates/_helpers.tpl).
+  ports:
+    {{- range $c.ports }}
+    - name: {{ .name }}
+      port: {{ .port }}
+      targetPort: {{ .name }}
+      appProtocol: https
+    {{- end }}
+{{- end }}

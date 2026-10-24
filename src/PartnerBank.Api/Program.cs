@@ -28,8 +28,11 @@ var internalPort = new Uri(settings.InternalBaseUrl).Port;
 // ┌─ SEC ────────────────────────────────────────────────────────────────────────────────
 // │ TWO HTTPS ports (Kestrel:Endpoints in appsettings):
 // │  - External (47403): EWP's server - a client certificate is REQUIRED in the TLS handshake.
-// │  - Internal (47404): the Partner's own window - bound to localhost ONLY, never reachable
-// │    from the network (the start script never changes it).
+// │  - Internal (47404): the Partner's own window and the authorization server's consent
+// │    page. Home PC: bound to localhost ONLY (the start script never changes it). Cluster:
+// │    on the pod network, where a NetworkPolicy admits only the window and the authorization
+// │    server (deploy/helm/partner-bank) - and every /internal call still needs the
+// │    customer's token (control 16). No client certificate here, so the probes use it too.
 // └──────────────────────────────────────────────────────────────────────────────────────
 builder.WebHost.ConfigureKestrel(kestrel => kestrel.UsePartnerTls(serverCertificate));
 
@@ -46,6 +49,10 @@ builder.Services.AddScoped<GoldDesk>();
 builder.Services.AddSingleton<SignedInstructions>();
 // Staff-view handoffs (PAR-style request_uri, 60 s, one use): in memory, one instance.
 builder.Services.AddSingleton<StaffViews>();
+
+// OBS: /health/live (process) and /health/ready (the SQLite database opens) for the orchestrator's probes.
+builder.Services.AddPartnerHealthChecks()
+    .AddDbContextCheck<PartnerDbContext>("database", tags: [HealthEndpoints.ReadyTag]);
 
 var backchannel = TrustedBackchannel.Create(trustRoot, settings.ResolvePartnerHostsTo);
 
@@ -145,9 +152,15 @@ if (!app.Environment.IsDevelopment())
     app.UseHsts();
 
 // ┌─ SEC ────────────────────────────────────────────────────────────────────────────────
-// │ /api only on the external (mutual-TLS) port, /internal only on the localhost port.
+// │ /api only on the external (mutual-TLS) port; /internal and /health only on the internal
+// │ port - the kubelet's probes present no client certificate, so the external port, which
+// │ requires one in the handshake, could not serve them anyway.
 // └──────────────────────────────────────────────────────────────────────────────────────
-app.UsePathPrefixPerPort(new Dictionary<int, PathString> { [externalPort] = "/api", [internalPort] = "/internal" });
+app.UsePathPrefixPerPort(new Dictionary<int, PathString[]>
+{
+    [externalPort] = ["/api"],
+    [internalPort] = ["/internal", "/health"]
+});
 
 app.UseAuthentication();
 app.UseAuthorization();
@@ -155,8 +168,9 @@ app.MapExternalApi();
 app.MapInternalApi();
 app.MapGoldApi();
 app.MapDistributionApi();
+app.MapPartnerHealthEndpoints();
 
-app.Logger.LogInformation("Partner Bank API: external {External} (mutual TLS), internal {Internal} (localhost), authorization server {Authority}.",
+app.Logger.LogInformation("Partner Bank API: external {External} (mutual TLS), internal {Internal}, authorization server {Authority}.",
     settings.ExternalBaseUrl, settings.InternalBaseUrl, settings.Authority);
 
 app.Run();

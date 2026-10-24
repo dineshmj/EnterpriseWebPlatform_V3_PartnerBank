@@ -1,0 +1,34 @@
+{{- /*
+┌─ :: ARCHITECTURE + RESILIENCE :: The one writable folder, /data ──────────────────────────────
+│ Why : A restart must keep the customers' accounts and the Partner Bank's data (SQLite), the
+│       authorization server's signing keys (else every issued token becomes unverifiable) and
+│       the Data Protection keys (else every session ends) - doc/Containers.md, decision 5.
+│ How : One claim per deployable, kept when the release is uninstalled
+│       (helm.sh/resource-policy: keep) - a teardown deletes them on purpose, never by accident.
+│       ReadWriteOnce = one instance (replicas 1, Recreate).
+│       DEBT: the Data Protection keys on it are not encrypted at rest (DataProtectionKeys.cs);
+│       the volume's access rights protect them until a key-vault key wraps them.
+│ Ref : doc/Kubernetes.md | doc/Containers.md (known gaps)
+└────────────────────────────────────────────────────────────────────────────────────────────────
+*/ -}}
+{{- $root := . -}}
+{{- range $name, $c := .Values.components }}
+{{- $ctx := dict "root" $root "name" $name }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ $name }}-data
+  labels:
+    {{- include "pb.labels" $ctx | nindent 4 }}
+  annotations:
+    helm.sh/resource-policy: keep
+spec:
+  accessModes: [ReadWriteOnce]
+  {{- with $root.Values.global.storageClassName }}
+  storageClassName: {{ . }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ $c.persistence.size }}
+{{- end }}
