@@ -49,7 +49,7 @@ spec:
       {{- end }}
       containers:
         - name: {{ $name }}
-          image: {{ include "pb.image" (dict "root" $root "c" $c) }}
+          image: {{ include "pb.image" (dict "root" $root "c" $c "name" $name) }}
           imagePullPolicy: {{ $g.image.pullPolicy }}
           ports:
             {{- range $c.ports }}
@@ -72,6 +72,10 @@ spec:
             - name: PartnerBank__EwpClient__RedirectUris__{{ $i }}
               value: {{ $uri | quote }}
             {{- end }}
+            {{- end }}
+            {{- range $i, $key := $g.backchannelTrustRoots.keys }}
+            - name: PartnerBank__Tls__BackchannelTrustRootPaths__{{ $i }}
+              value: /etc/partner-bank/backchannel-roots/{{ $key }}
             {{- end }}
             {{- range $k, $v := $c.env }}
             - name: {{ $k }}
@@ -113,6 +117,11 @@ spec:
             - name: pki
               mountPath: /etc/partner-bank/pki
               readOnly: true
+            {{- if $g.backchannelTrustRoots.keys }}
+            - name: backchannel-roots
+              mountPath: /etc/partner-bank/backchannel-roots
+              readOnly: true
+            {{- end }}
             - name: data
               mountPath: /data
       volumes:
@@ -130,6 +139,17 @@ spec:
               - key: {{ . }}
                 path: {{ . }}
               {{- end }}
+        {{- if $g.backchannelTrustRoots.keys }}
+        # Public certificates only (roots), no secret.
+        - name: backchannel-roots
+          configMap:
+            name: {{ required "global.backchannelTrustRoots.configMap is required with keys" $g.backchannelTrustRoots.configMap }}
+            items:
+              {{- range $g.backchannelTrustRoots.keys }}
+              - key: {{ . }}
+                path: {{ . }}
+              {{- end }}
+        {{- end }}
         - name: data
           persistentVolumeClaim:
             claimName: {{ $name }}-data

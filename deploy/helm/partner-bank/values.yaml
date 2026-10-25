@@ -7,7 +7,8 @@
 # │         image       the image name in the registry (.github/container-images.json)
 # │         ports       name, port (container = Service = public port, the home PC's numbers),
 # │                     listener: the Gateway listener that passes TLS through to it (public), or
-# │                     allowFrom: the components that may connect (pod network only)
+# │                     allowFrom: the components that may connect (pod network only);
+# │                     browser: true for a port people open in a browser (no client certificate)
 # │         probePort   the port the kubelet probes (one that never requires a client certificate)
 # │         pkiFiles    the files of the PKI Secret it needs (doc/Containers.md, run-time contract)
 # │         env         plain settings; values are templates ({{ include "pb.public" ... }})
@@ -24,6 +25,8 @@ global:
     registry: ghcr.io/dineshmj
     # The full commit SHA the images were built from (doc/Containers.md, decision 1). Required.
     tag: ""
+    # Optional, per component key: sha256:... - the image is then pulled by digest (tag@digest).
+    digests: {}
     pullPolicy: IfNotPresent
     pullSecrets: []
   # Requests sized for the deployables at rest; no CPU limit (throttling hurts latency more than
@@ -59,6 +62,21 @@ global:
     namespaceSelector:
       matchLabels:
         kubernetes.io/metadata.name: gateway-system
+    # ┌─ SEC ──────────────────────────────────────────────────────────────────────────────────
+    # │ true: the Gateway ends the browser's TLS on the browser ports with a publicly trusted
+    # │ certificate (a browser does not trust the Partner's PKI) and opens a new TLS connection
+    # │ to the pod, checked against the PKI's root (ConfigMap backendCaConfigMap, key ca.crt) and
+    # │ the public host name. The mutual-TLS ports stay passed through: EWP's certificate must
+    # │ reach the pod in the handshake. false (default): every public port passed through.
+    # └────────────────────────────────────────────────────────────────────────────────────────
+    terminateBrowserPorts: false
+    backendCaConfigMap: partner-bank-ca
+  # More roots the deployables' own calls may accept (TlsOptions.BackchannelTrustRootPaths): with
+  # terminateBrowserPorts, the public CA of the Gateway's certificate, whose ports the deployables
+  # call too (their authorization server's issuer address). ConfigMap name and its keys (PEM).
+  backchannelTrustRoots:
+    configMap: ""
+    keys: []
   networkPolicies:
     enabled: true
 
@@ -68,7 +86,7 @@ components:
   partner-auth:
     image: partner-bank-authorization-server
     ports:
-      - {name: public, port: 47401, listener: partner-auth}
+      - {name: public, port: 47401, listener: partner-auth, browser: true}
       - {name: mtls, port: 47411, listener: partner-auth-mtls}
     probePort: public
     pkiFiles: [partner-bank-server.pfx, partner-bank-server.pfx.password, ewp-trust-root.cer, ewp-request-signing.cer]
@@ -106,7 +124,7 @@ components:
   partner-products:
     image: partner-bank-web
     ports:
-      - {name: window, port: 47402, listener: partner-products}
+      - {name: window, port: 47402, listener: partner-products, browser: true}
     probePort: window
     pkiFiles: [partner-bank-server.pfx, partner-bank-server.pfx.password, ewp-trust-root.cer]
     # The Data Protection keys (session cookies) must survive a restart.

@@ -29,6 +29,9 @@ with the differences below (P2, P3, P4).
 | P7 | **Probes on `/health/live` (start-up, liveness) and `/health/ready` (readiness: the SQLite database opens)**, over https on a port that never asks for a client certificate - the API: its internal port. A `Host` header with the Service name (`AllowedHosts` = the public host and the Service name) | The kubelet has no client certificate; the API's external port would refuse the handshake |
 | P8 | **Same pod hardening as EWP**: UID 1654, read-only root file system with an emptyDir `/tmp`, no privilege escalation, all capabilities dropped, `RuntimeDefault` seccomp, no service account token, no service-link variables; the PKI Secret mounted read-only with only the files the deployable needs | Pod Security Standard "restricted" |
 | P9 | **Secrets by name only**; **required values refuse to render** (the domain, the image tag, the Gateway) | As EWP's K5 and K10 |
+| P10 | **An environment may end the browser's TLS at the Gateway on the two browser ports** (`global.gateway.terminateBrowserPorts`: 47401 sign-in, 47402 window), with a publicly trusted certificate, and re-encrypt to the pod: an HTTPRoute plus a **BackendTLSPolicy** that checks the pod's certificate against the PKI's root (`global.gateway.backendCaConfigMap`) and the public host name. The two mutual-TLS ports (47411, 47403) are always passed through | A browser does not trust the Partner's PKI; on the home PC the browser is told to trust it by hand, a demo audience cannot be. Those two ports carry no client certificate, so nothing is lost by ending TLS there; EWP's certificate on the mutual-TLS ports still reaches the pod (P2). EWP's cloud demo uses it ([EWP Cloud-Demo.md](https://github.com/dineshmj/EnterpriseWebPlatform_V3/blob/main/doc/Cloud-Demo.md) CD19) |
+| P11 | **The deployables' own calls may trust more roots** (`global.backchannelTrustRoots`: a ConfigMap of PEM roots, `PartnerBank__Tls__BackchannelTrustRootPaths__<n>`), never the client-certificate check | With P10 the deployables meet the Gateway's public certificate when they call their issuer address (discovery, keys, token). A public CA may vouch for a server name, never for EWP's identity (`TlsOptions.LoadBackchannelTrustRoots`, unit-tested) |
+| P12 | **An image may be pinned by digest** (`global.image.digests.<component>`: `repository:tag@digest`) | As EWP's K11: the demo pins each image to the digest its `main` tag has at install time |
 
 ## What a cluster needs first
 
@@ -75,7 +78,7 @@ Nothing here needs a cluster or Docker.
 
 | Gap | Effect | Planned fix |
 |---|---|---|
-| Not yet installed on a cluster: checked by rendering and schemas only | Problems only a running cluster shows (the Gateway's passthrough listeners on high ports, a probe timing) are still to find | The first demo run (EWP steps 5-7) |
+| Not yet installed on a cluster: checked by rendering and schemas only | Problems only a running cluster shows (the Gateway's listeners on high ports, a probe timing) are still to find | The first demo run with EWP's step 7b (built 25-OCT-2026) |
 | In-cluster calls to the authorization server go out through the Gateway (hairpin) | One more hop for discovery and keys; needs the load balancer to allow it | A split-horizon DNS name or the Service address once the issuer and the Service share a name |
 | No egress NetworkPolicy | A compromised pod can open connections out of the namespace | With the environment's addresses (Terraform step) |
 | Kestrel reads the PKI files at start-up only | A renewed certificate is used after the next restart | A demo cluster lives hours; longer-lived: a restart on Secret change |

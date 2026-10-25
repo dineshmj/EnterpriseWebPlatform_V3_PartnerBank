@@ -14,6 +14,7 @@ builder.Services.AddSingleton(settings);
 
 var serverCertificate = settings.Tls.LoadServerCertificate();
 var trustRoot = settings.Tls.LoadTrustRoot();
+var backchannelRoots = settings.Tls.LoadBackchannelTrustRoots(trustRoot);
 
 // ┌─ SEC ────────────────────────────────────────────────────────────────────────────────
 // │ One HTTPS port for the customer's browser (Kestrel:Endpoints:Window) - it never asks for
@@ -63,7 +64,7 @@ builder.Services
         options.GetClaimsFromUserInfoEndpoint = true;
         options.SaveTokens = true;
         options.TokenValidationParameters.NameClaimType = "name";
-        options.BackchannelHttpHandler = TrustedBackchannel.Create(trustRoot, settings.ResolvePartnerHostsTo);
+        options.BackchannelHttpHandler = TrustedBackchannel.Create(backchannelRoots, settings.ResolvePartnerHostsTo);
 
         // ┌─ SEC ────────────────────────────────────────────────────────────────────────────────
         // │ max_age: a Partner Bank sign-in counts only if it is at most 2 minutes old. Right
@@ -78,7 +79,7 @@ builder.Services
 builder.Services.AddHttpContextAccessor();
 builder.Services
     .AddHttpClient<PartnerApi>(PartnerApi.HttpClientName, client => client.BaseAddress = new Uri(settings.ApiInternalBaseUrl.TrimEnd('/') + "/"))
-    .ConfigurePrimaryHttpMessageHandler(() => TrustedBackchannel.Create(trustRoot, settings.ResolvePartnerHostsTo));
+    .ConfigurePrimaryHttpMessageHandler(() => TrustedBackchannel.Create(backchannelRoots, settings.ResolvePartnerHostsTo));
 
 builder.Services.AddRazorPages();
 

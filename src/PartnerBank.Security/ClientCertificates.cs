@@ -49,12 +49,21 @@ public static class ClientCertificates
         });
 
     /// <summary>True when the certificate chains to the PoC's trust root (and to nothing else).</summary>
-    public static bool ChainsTo(this X509Certificate2 certificate, X509Certificate2 trustRoot)
+    public static bool ChainsTo(this X509Certificate2 certificate, X509Certificate2 trustRoot) =>
+        certificate.ChainsToAny(new X509Certificate2Collection(trustRoot), intermediates: null);
+
+    /// <summary>
+    /// True when the certificate chains to one of the given roots (and to nothing else). The server's own
+    /// intermediates (from the TLS handshake) may complete the chain; they are never trusted as roots.
+    /// </summary>
+    public static bool ChainsToAny(this X509Certificate2 certificate, X509Certificate2Collection roots, X509Chain? intermediates)
     {
         using var chain = new X509Chain();
         chain.ChainPolicy.TrustMode = X509ChainTrustMode.CustomRootTrust;
-        chain.ChainPolicy.CustomTrustStore.Add(trustRoot);
+        chain.ChainPolicy.CustomTrustStore.AddRange(roots);
         chain.ChainPolicy.RevocationMode = X509RevocationMode.NoCheck;
+        foreach (var element in intermediates?.ChainElements.Skip(1) ?? [])
+            chain.ChainPolicy.ExtraStore.Add(element.Certificate);
         return chain.Build(certificate);
     }
 

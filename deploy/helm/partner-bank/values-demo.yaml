@@ -8,7 +8,8 @@
 # └────────────────────────────────────────────────────────────────────────────────────────────────
 
 global:
-  # <set by the pipeline>: --set global.domain=... --set global.image.tag=<commit SHA>
+  # <set by the pipeline>: --set global.domain=... --set global.image.tag=main, every image's
+  # digest (global.image.digests) and EWP's callback (global.ewp.redirectUris)
   domain: demo.ewp.example
   image:
     tag: "0000000000000000000000000000000000000000"
@@ -17,3 +18,14 @@ global:
     parentRefs:
       - name: ewp-gateway
         namespace: gateway-system
+    # The browser ports get a public certificate at the Gateway (EWP's environment: Let's
+    # Encrypt); the Gateway checks the pods against the demo PKI's root (ConfigMap made by the
+    # environment from Key Vault).
+    terminateBrowserPorts: true
+    backendCaConfigMap: partner-bank-ca
+
+  # The public CA of the Gateway's certificate, for the deployables' calls to their own
+  # authorization server's issuer address (ConfigMap made by the environment).
+  backchannelTrustRoots:
+    configMap: partner-bank-backchannel-roots
+    keys: [letsencrypt-root-x1.pem, letsencrypt-root-x2.pem]
