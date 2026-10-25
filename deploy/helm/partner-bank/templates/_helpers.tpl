@@ -24,10 +24,13 @@ https://{{ include "pb.publicHost" (list $root (index . 1)) }}:{{ index . 2 }}
 {{ index . 1 }}.{{ required "global.domain is required (e.g. demo.example.com)" $root.Values.global.domain }}
 {{- end -}}
 
+{{/* repository:tag, or repository:tag@digest when global.image.digests names this component's
+     image digest (the cloud demo pins every image to the digest its tag had at install time). */}}
 {{- define "pb.image" -}}
 {{- $g := .root.Values.global.image -}}
 {{- $tag := required "global.image.tag is required: the full commit SHA the images were built from" $g.tag -}}
-{{ $g.registry }}/{{ .c.image }}:{{ $tag }}
+{{- $digest := index ($g.digests | default dict) .name -}}
+{{ $g.registry }}/{{ .c.image }}:{{ $tag }}{{ with $digest }}@{{ . }}{{ end }}
 {{- end -}}
 
 {{- define "pb.labels" -}}

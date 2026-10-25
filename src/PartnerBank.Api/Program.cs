@@ -22,6 +22,7 @@ builder.Services.AddSingleton(TimeProvider.System);
 
 var serverCertificate = settings.Tls.LoadServerCertificate();
 var trustRoot = settings.Tls.LoadTrustRoot();
+var backchannelRoots = settings.Tls.LoadBackchannelTrustRoots(trustRoot);
 var externalPort = new Uri(settings.ExternalBaseUrl).Port;
 var internalPort = new Uri(settings.InternalBaseUrl).Port;
 
@@ -54,7 +55,7 @@ builder.Services.AddSingleton<StaffViews>();
 builder.Services.AddPartnerHealthChecks()
     .AddDbContextCheck<PartnerDbContext>("database", tags: [HealthEndpoints.ReadyTag]);
 
-var backchannel = TrustedBackchannel.Create(trustRoot, settings.ResolvePartnerHostsTo);
+var backchannel = TrustedBackchannel.Create(backchannelRoots, settings.ResolvePartnerHostsTo);
 
 builder.Services
     .AddAuthentication()

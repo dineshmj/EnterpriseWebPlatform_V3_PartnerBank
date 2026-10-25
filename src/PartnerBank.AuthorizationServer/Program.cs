@@ -17,6 +17,7 @@ if (!Uri.TryCreate(settings.MtlsBaseUrl, UriKind.Absolute, out var mtlsBaseUri) 
 
 var serverCertificate = settings.Tls.LoadServerCertificate();
 var trustRoot = settings.Tls.LoadTrustRoot();
+var backchannelRoots = settings.Tls.LoadBackchannelTrustRoots(trustRoot);
 var ewpRequestSigning = settings.EwpClient.LoadRequestSigningCertificate();
 builder.Services.AddSingleton(settings);
 
@@ -126,7 +127,7 @@ builder.Services.AddTransient<Duende.IdentityServer.ResponseHandling.IAuthorizeR
 // └──────────────────────────────────────────────────────────────────────────────────────
 builder.Services
     .AddHttpClient("PartnerApiInternal", client => client.BaseAddress = new Uri(settings.ApiInternalBaseUrl.TrimEnd('/') + "/"))
-    .ConfigurePrimaryHttpMessageHandler(() => TrustedBackchannel.Create(trustRoot, settings.ResolvePartnerHostsTo));
+    .ConfigurePrimaryHttpMessageHandler(() => TrustedBackchannel.Create(backchannelRoots, settings.ResolvePartnerHostsTo));
 
 builder.Services.AddRazorPages();
 

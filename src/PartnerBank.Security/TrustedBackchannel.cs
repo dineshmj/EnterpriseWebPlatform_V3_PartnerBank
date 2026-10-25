@@ -13,11 +13,12 @@ namespace PartnerBank.Security;
 public static class TrustedBackchannel
 {
     // ┌─ SEC ────────────────────────────────────────────────────────────────────────────────
-    // │ The authorization server's certificate must chain to the PoC's root (custom trust,
-    // │ nothing else) AND match the host name - a server with another certificate is never
-    // │ believed, even one Windows would trust.
+    // │ The authorization server's certificate must chain to one of the given roots (custom
+    // │ trust: the PoC's root, and in a cluster the public CA the Gateway's certificate comes
+    // │ from - TlsOptions.LoadBackchannelTrustRoots) AND match the host name - a server with
+    // │ another certificate is never believed, even one the operating system would trust.
     // └──────────────────────────────────────────────────────────────────────────────────────
-    public static HttpMessageHandler Create(X509Certificate2 trustRoot, string? resolvePartnerHostsTo) =>
+    public static HttpMessageHandler Create(X509Certificate2Collection trustRoots, string? resolvePartnerHostsTo) =>
         new SocketsHttpHandler
         {
             ConnectCallback = string.IsNullOrWhiteSpace(resolvePartnerHostsTo)
@@ -37,10 +38,10 @@ public static class TrustedBackchannel
                 },
             SslOptions = new SslClientAuthenticationOptions
             {
-                RemoteCertificateValidationCallback = (_, certificate, _, errors) =>
+                RemoteCertificateValidationCallback = (_, certificate, chain, errors) =>
                     certificate is not null &&
                     (errors & ~SslPolicyErrors.RemoteCertificateChainErrors) == SslPolicyErrors.None &&
-                    new X509Certificate2(certificate).ChainsTo(trustRoot)
+                    new X509Certificate2(certificate).ChainsToAny(trustRoots, chain)
             }
         };
 }
