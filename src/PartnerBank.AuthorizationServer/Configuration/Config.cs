@@ -98,9 +98,14 @@ public static class Config
                 }
             },
 
-            // Code: a person (our customer) at the Partner's window. Client credentials: EWP's
-            // own calls afterwards, e.g. an application's status.
-            AllowedGrantTypes = GrantTypes.CodeAndClientCredentials,
+            // ┌─ SEC ────────────────────────────────────────────────────────────────────────────────
+            // │ Client credentials: EWP's own distributor calls (always). Code: a person (our
+            // │ customer) at the Partner's window - only where EWP's callback is configured. Duende
+            // │ refuses a code-flow client without a redirect URI, and refuses it WHOLE: every call,
+            // │ client credentials included, then fails with invalid_client (EWP's cloud demo,
+            // │ 26-OCT-2026). So a deployment without the callback registers the grant it can use.
+            // └──────────────────────────────────────────────────────────────────────────────────────
+            AllowedGrantTypes = ewp.RedirectUris.Count > 0 ? GrantTypes.CodeAndClientCredentials : GrantTypes.ClientCredentials,
 
             // ┌─ SEC ────────────────────────────────────────────────────────────────────────────────
             // │ FAPI 2.0 style: the authorization request is PUSHED first (server to server, over
