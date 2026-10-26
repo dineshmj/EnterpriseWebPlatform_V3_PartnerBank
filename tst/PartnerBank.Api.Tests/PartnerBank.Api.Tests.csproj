@@ -10,6 +10,7 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\src\PartnerBank.Api\PartnerBank.Api.csproj" />
+    <ProjectReference Include="..\..\src\PartnerBank.AuthorizationServer\PartnerBank.AuthorizationServer.csproj" />
   </ItemGroup>
   <ItemGroup>
     <Using Include="NUnit.Framework" />

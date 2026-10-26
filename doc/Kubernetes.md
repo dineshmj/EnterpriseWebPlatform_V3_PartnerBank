@@ -64,7 +64,9 @@ next to EWP's in the same cluster; its host names are the ones EWP's `values-dem
 | `partner-bank-window-client` | `secret` | the authorization server (`PartnerBank__ProductsWindowClient__Secret`) and the window (`PartnerBank__WindowClientSecret`) - one value, so the two cannot drift |
 
 EWP's code-flow redirect addresses (`global.ewp.redirectUris`) are optional: EWP's distributor
-calls use client credentials only.
+calls use client credentials only. Without them the authorization server registers EWP's client for
+client credentials alone (IdentityServer refuses a code-flow client that has no redirect address -
+and then refuses every call: first cloud demo with Digital Gold, 26-OCT-2026).
 
 ## Checking the chart
 
