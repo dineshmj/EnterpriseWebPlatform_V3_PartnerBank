@@ -63,4 +63,8 @@ On GitHub: **Compare & pull request**. The PR description is the commit descript
 squash merge it becomes the one commit on `main`. When "CI result" is green: **Squash and merge**,
 then delete the branch. Then locally: `git switch main && git pull`.
 
-Dependabot's pull requests (actions, base images) go through the same gates.
+Dependabot's pull requests (actions, base images, NuGet packages - each weekly, grouped) go
+through the same gates. A .NET servicing release arrives as two of them, the packages and the
+runtime image: merge them together. Why NuGet is there too: the vulnerable-packages gate sees only
+package advisories, not fixes in the .NET runtime itself - the 10.0.14 security release was found
+by hand, two days late (27-OCT-2026).

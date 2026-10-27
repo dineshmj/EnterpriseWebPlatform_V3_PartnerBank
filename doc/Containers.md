@@ -22,7 +22,7 @@ with one deliberate difference: TLS (decision 4).
 | 4 | **TLS ends in Kestrel, inside the container** - unlike EWP, whose containers speak plain HTTP behind the ingress. The ingress passes the TLS connection through (SNI routing), and each port keeps its client-certificate rule (Architecture section 5) | EWP's tokens are bound to the client certificate of the connection (RFC 8705, controls 4 and 14) and the authorization server authenticates EWP by that certificate (control 1). The deployable must see the certificate in the handshake itself; an ingress that ended TLS would have to forward it in a header - one more party the bank would have to trust with EWP's identity |
 | 5 | **One writable folder, `/data`** (owned by `app`; in an environment, a volume): the SQLite databases, the authorization server's signing keys, the Data Protection keys. Everything else is read-only (`--read-only` works) | A restart must keep the customers' accounts, the Partner Bank's data, and the keys that verify issued tokens and decrypt sessions |
 | 6 | **Certificates are mounted** at `/etc/partner-bank/pki`, with the same file names as `%USERPROFILE%\.ewp-pki` | One convention for the image and the home PC; a missing file stops the start-up with its name (control 8) |
-| 7 | Base images pinned by **tag and digest**, actions pinned to commit SHAs; **Dependabot** proposes updates weekly, all base images in one pull request ([dependabot.yml](../.github/dependabot.yml)) | Nothing changes silently, security fixes still arrive - and the bases are the same digests as EWP's, so both organisations move together |
+| 7 | Base images pinned by **tag and digest**, actions pinned to commit SHAs; **Dependabot** proposes updates weekly, all base images in one pull request (the NuGet packages in another - merge a .NET release's two together) ([dependabot.yml](../.github/dependabot.yml)) | Nothing changes silently, security fixes still arrive - and the bases are the same digests as EWP's, so both organisations move together |
 
 ## What CI does per image
 
@@ -110,4 +110,4 @@ each have their own. A second instance needs the production stores of residual r
 2. Add the image to [.github/container-images.json](../.github/container-images.json) - its name,
    Dockerfile, EVERY folder it is built from, and a `check` (port, path, whether the port needs a
    client certificate, the expected status, any setting it needs to start). Add its folder to
-   [dependabot.yml](../.github/dependabot.yml).
+   [dependabot.yml](../.github/dependabot.yml) - under `docker` and under `nuget`.

@@ -3,8 +3,10 @@
 # │       digest. Pinning stops silent changes; without updates it would also stop security fixes.
 # │ How : Dependabot proposes a pull request a week per ecosystem (all base images in one); CI
 # │       and the image workflow build, scan and start each proposal before it can be merged.
-# │       NuGet stays with the CI gate (vulnerable packages) and EWP's routine, so both
-# │       organisations' .NET versions move together.
+# │       NuGet too, all packages in one pull request: a hand-made routine missed the .NET
+# │       10.0.14 security release (27-OCT-2026), and the CI gate cannot see fixes that are in
+# │       the runtime rather than in a package advisory. EWP's repository proposes the same
+# │       updates the same week, so both organisations' .NET versions still move together.
 # │ Ref : doc/Containers.md | OWASP A06 Vulnerable and Outdated Components
 # └────────────────────────────────────────────────────────────────────────────────────────────────
 version: 2
@@ -32,4 +34,26 @@ updates:
     # One pull request for every base image move: the 3 Dockerfiles share the same two bases.
     groups:
       base-images:
+        patterns: ['*']
+
+  - package-ecosystem: nuget
+    # Every project folder (the solution's deployables and the test project).
+    directories:
+      - /src/PartnerBank.Api
+      - /src/PartnerBank.AuthorizationServer
+      - /src/PartnerBank.Security
+      - /src/PartnerBank.Web
+      - /tst/PartnerBank.Api.Tests
+    schedule:
+      interval: weekly
+    # ┌─ ARCH ─────────────────────────────────────────────────────────────────────────────────────
+    # │ As for the images: minor and patch only - a major (.NET 11, IdentityServer 9) is planned.
+    # │ One pull request for all packages, so the Microsoft.* packages move as one release; its
+    # │ runtime image arrives in the base-images pull request - merge the two together.
+    # └────────────────────────────────────────────────────────────────────────────────────────────
+    ignore:
+      - dependency-name: '*'
+        update-types: ['version-update:semver-major']
+    groups:
+      nuget-packages:
         patterns: ['*']
