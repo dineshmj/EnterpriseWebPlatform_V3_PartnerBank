@@ -19,7 +19,9 @@
     deleted while a service holds them - and asks before erasing anything (or pass -Force).
 
     After a reset, EWP may still hold records of accounts the Partner Bank no longer knows: send
-    those again from EWP, or re-create EWP's EwpPartnerProductsDb as well.
+    those again from EWP, or reset EWP as well (EWP's .\ps\Reset.ps1, level 1 or higher: its
+    databases and its Temporal purchase workflows). Temporal runs on the EWP side only, so there is
+    nothing of it to reset here.
 
 .EXAMPLE
     .\ps\Reset-PartnerBank.ps1                # asks for the level, then for confirmation
