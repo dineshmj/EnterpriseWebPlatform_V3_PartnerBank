@@ -40,7 +40,7 @@ done
 
 # SEC: the chart refuses to render without the values that must come from the environment.
 values="$chart/values-demo.yaml"
-for missing in global.domain global.image.tag global.gateway.parentRefs; do
+for missing in global.domain global.image.tag global.gateway.parentRefs global.egress.gatewayIp; do
   if helm template partner-bank "$chart" -f "$values" --set "$missing=" > /dev/null 2>&1; then
     echo "::error::The partner-bank chart rendered without $missing - it must refuse."
     exit 1

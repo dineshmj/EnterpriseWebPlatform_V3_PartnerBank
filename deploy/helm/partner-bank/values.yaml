@@ -79,6 +79,23 @@ global:
     keys: []
   networkPolicies:
     enabled: true
+  # SEC: where the Partner Bank's pods may connect OUT to (templates/networkpolicies.yaml): the
+  # cluster DNS, the ports that admit them (allowFrom), and - only components with
+  # callsGateway - their authorization server's public address through the Gateway. Nothing
+  # else: no internet, no other namespace. Off: outgoing connections are not limited.
+  egress:
+    enabled: true
+    # The Gateway's public IP. Required when enabled (the demo: Terraform output gateway_ip).
+    gatewayIp: ""
+    # The Gateway's Partner Bank listeners (the ports' listener values).
+    gatewayPorts: [47401, 47402, 47403, 47411]
+    dns:
+      namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: kube-system
+      podSelector:
+        matchLabels:
+          k8s-app: kube-dns
 
 components:
 
@@ -111,6 +128,8 @@ components:
     probePort: internal
     pkiFiles: [partner-bank-server.pfx, partner-bank-server.pfx.password, ewp-trust-root.cer, ewp-request-signing.cer]
     persistence: {size: 1Gi}
+    # Its authorization server's discovery and keys, by the public issuer address.
+    callsGateway: true
     env:
       # SEC: the image keeps the internal port on localhost; the chart opens it on the pod
       # network together with the NetworkPolicy that limits who reaches it (doc/Kubernetes.md).
@@ -125,6 +144,8 @@ components:
     image: partner-bank-web
     ports:
       - {name: window, port: 47402, listener: partner-products, browser: true}
+    # The customer's sign-in (OpenID Connect back channel) at the public issuer address.
+    callsGateway: true
     probePort: window
     pkiFiles: [partner-bank-server.pfx, partner-bank-server.pfx.password, ewp-trust-root.cer]
     # The Data Protection keys (session cookies) must survive a restart.

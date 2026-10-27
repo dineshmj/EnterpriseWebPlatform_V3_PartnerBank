@@ -1,34 +1,42 @@
 {{- /*
-┌─ :: SECURITY :: Who may open a connection to which port ──────────────────────────────────────
+┌─ :: SECURITY :: Who may open a connection to which port - in AND out ─────────────────────────
 │ Why : On the home PC the API's internal port is bound to localhost (control 13). In a cluster
 │       each deployable is its own pod, so the window and the consent page reach that port over
-│       the pod network - which must not make it reachable for anyone else.
-│ How : Every Partner Bank pod refuses incoming connections by default. Per PORT:
+│       the pod network - which must not make it reachable for anyone else. And a compromised
+│       pod must not reach anything outside the Partner Bank: no second-stage download, no data
+│       sent to an attacker's server, nothing in EWP's namespace.
+│ How : Incoming - every Partner Bank pod refuses connections by default. Per PORT:
 │        - a public port (listener) admits only the Gateway's namespace - the Gateway passes the
 │          TLS connection through, so EWP's client certificate still reaches the pod;
 │        - the API's internal port admits only the window and the authorization server pods,
 │          and every /internal call still needs the customer's token (control 16).
 │       Nothing else in the cluster - EWP's namespace included - reaches a Partner Bank pod
 │       directly: EWP calls the public addresses like any outside client.
-│       DEBT: outgoing traffic is not limited yet (the deployables call their authorization
-│       server through the Gateway); an egress policy belongs with the environment's addresses
-│       (Terraform step). The kubelet's probes come from the node; CNIs admit them.
-│ Ref : doc/Kubernetes.md | doc/Architecture.md 5 | OWASP A01, A05 | NIST SP 800-204
+│       Outgoing (global.egress) - only the cluster DNS, the ports that admit the pod (the mirror
+│       of their allowFrom), and, with callsGateway, the Gateway: its pods (Cilium hands a
+│       connection to the load balancer's IP straight to them) and its public IP on the Partner
+│       Bank's listener ports. The kubelet's probes come from the node; CNIs admit them.
+│ Ref : doc/Kubernetes.md P6, P13 | doc/Architecture.md 5 | OWASP A01, A05, A10 (SSRF) |
+│       NIST SP 800-204
 └────────────────────────────────────────────────────────────────────────────────────────────────
 */ -}}
 {{- if .Values.global.networkPolicies.enabled }}
 {{- $root := . -}}
 {{- $g := .Values.global -}}
+{{- $egress := $g.egress.enabled -}}
+{{- if $egress }}
+{{- $_ := required "global.egress.gatewayIp is required when egress is limited (the Gateway's public IP)" $g.egress.gatewayIp }}
+{{- end }}
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: partner-bank-default-deny-ingress
+  name: partner-bank-default-deny
 spec:
   podSelector:
     matchLabels:
       app.kubernetes.io/part-of: partner-bank
       app.kubernetes.io/instance: {{ $root.Release.Name }}
-  policyTypes: ["Ingress"]
+  policyTypes: {{ if $egress }}["Ingress", "Egress"]{{ else }}["Ingress"]{{ end }}
 {{- range $name, $c := .Values.components }}
 {{- $ctx := dict "root" $root "name" $name }}
 ---
@@ -42,7 +50,7 @@ spec:
   podSelector:
     matchLabels:
       {{- include "pb.selector" $ctx | nindent 6 }}
-  policyTypes: ["Ingress"]
+  policyTypes: {{ if $egress }}["Ingress", "Egress"]{{ else }}["Ingress"]{{ end }}
   ingress:
     {{- range $c.ports }}
     {{- if .listener }}
@@ -63,5 +71,40 @@ spec:
         - port: {{ .port }}
     {{- end }}
     {{- end }}
+  {{- if $egress }}
+  egress:
+    - to:
+        - namespaceSelector:
+            {{- toYaml $g.egress.dns.namespaceSelector | nindent 12 }}
+          podSelector:
+            {{- toYaml $g.egress.dns.podSelector | nindent 12 }}
+      ports:
+        - {port: 53, protocol: UDP}
+        - {port: 53, protocol: TCP}
+    {{- range $other, $o := $root.Values.components }}
+    {{- range $o.ports }}
+    {{- if has $name (.allowFrom | default list) }}
+    - to:
+        - podSelector:
+            matchLabels:
+              {{- include "pb.selector" (dict "root" $root "name" $other) | nindent 14 }}
+      ports:
+        - {port: {{ .port }}, protocol: TCP}
+    {{- end }}
+    {{- end }}
+    {{- end }}
+    {{- if $c.callsGateway }}
+    - to:
+        - namespaceSelector:
+            {{- toYaml $g.gateway.namespaceSelector | nindent 12 }}
+    - to:
+        - ipBlock:
+            cidr: {{ $g.egress.gatewayIp }}/32
+      ports:
+        {{- range $g.egress.gatewayPorts }}
+        - {port: {{ . }}, protocol: TCP}
+        {{- end }}
+    {{- end }}
+  {{- end }}
 {{- end }}
 {{- end }}
