@@ -14,6 +14,10 @@ global:
   image:
     tag: "0000000000000000000000000000000000000000"
 
+  egress:
+    # <set by the pipeline>: Terraform output gateway_ip.
+    gatewayIp: 192.0.2.10
+
   gateway:
     parentRefs:
       - name: ewp-gateway
