@@ -14,7 +14,7 @@
 # │ Ref : doc/Containers.md | doc/Architecture.md 5 | OWASP A02, A05, A08 | CIS Docker Benchmark 4.1
 # └────────────────────────────────────────────────────────────────────────────────────────────────
 
-FROM mcr.microsoft.com/dotnet/sdk:10.0.402-noble@sha256:747cbade5bfd918a175ac32f8f1d931edec2c7d0d5397a3de72eaef1ac1f66d2 AS build
+FROM mcr.microsoft.com/dotnet/sdk:10.0.403-noble@sha256:de4fe90a98845d75910b9769662465c84de1a934665c431279d1382b2bddc02b AS build
 WORKDIR /src
 
 # Restore from the project files alone (layer reused until a project file changes).
@@ -30,7 +30,7 @@ RUN dotnet publish src/PartnerBank.Web/PartnerBank.Web.csproj \
         --output /app -p:UseAppHost=false \
     && mkdir /data
 
-FROM mcr.microsoft.com/dotnet/aspnet:10.0.13-noble-chiseled-extra@sha256:9e3919aff68057f3e45125c5255a71d3b5f40364e45ede883348688851b9f0df AS runtime
+FROM mcr.microsoft.com/dotnet/aspnet:10.0.14-noble-chiseled-extra@sha256:9b755ea799ae649141a073e30d8b62d8095a5465af2b7694d17866e8c05131d8 AS runtime
 WORKDIR /app
 
 # Program files owned by root (read-only for "app"); /data is the one writable place.
