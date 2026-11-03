@@ -77,7 +77,7 @@ On the home PC, copy those four into `%USERPROFILE%\.ewp-pki`. Never copy `ewp-t
 
 ## Running
 
-The simplest way, on either machine - it builds once, then opens one window per deployable (authorization server, API, window - each after the one it depends on):
+The simplest way, on either machine - it builds once, then opens one window per deployable (authorization server, API, window - each after the one it depends on), and ends with "All three are listening." If one is not listening within 2 minutes, it names it and exits with 1; when its window shows no error, press Esc in it (a click or a selection in a console window pauses it):
 
 ```powershell
 .\ps\Start-PartnerBank.ps1          # on the laptop: localhost only

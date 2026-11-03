@@ -11,7 +11,8 @@
         Partner Bank - window                 https://partner-products.ewp.home.arpa:47402 (the customer's browser)
 
     Each starts after the one before it is listening (the API and the window use the authorization server;
-    the window uses the API).
+    the window uses the API). At the end the script checks that all three are listening; if one is not
+    within 2 minutes it says which, and exits with 1.
 
     By default every port listens on this machine only (localhost). With -Lan they listen on every
     interface, so the laptop can reach them - use it on the home PC (the firewall rules allow the four
@@ -53,6 +54,21 @@ $deployables = @(
 
 function Get-Listener([int] $port) {
     Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1
+}
+
+# Waits until the deployable listens on its first port; $false after the deadline.
+function Wait-Listener($deployable, [datetime] $deadline) {
+    while (-not (Get-Listener $deployable.Ports[0])) {
+        if ((Get-Date) -ge $deadline) { return $false }
+        Start-Sleep -Seconds 2
+    }
+    return $true
+}
+
+# Why a window can look fine and still not answer: a click or a selection in a console window
+# (QuickEdit) pauses its output, and the app stops at its next log line - often before it listens.
+function Write-NotListening($deployable) {
+    Write-Host "$($deployable.Name) is not listening on $($deployable.Ports[0]) after 2 minutes - see its window. If the window shows no error, press Esc in it: a click or a selection pauses the console." -ForegroundColor Red
 }
 
 if ($Stop) {
@@ -98,19 +114,36 @@ foreach ($d in $deployables) {
         continue
     }
 
-    # Each depends on the one before it: let that one listen first.
+    # Each depends on the one before it: let that one listen first, or stop here and say which.
     $index = [array]::IndexOf($deployables, $d)
     if ($index -gt 0) {
         $previous = $deployables[$index - 1]
         Write-Host "Waiting for $($previous.Name)..." -ForegroundColor DarkGray
         $deadline = (Get-Date).AddMinutes(2)
-        while (-not (Get-Listener $previous.Ports[0]) -and (Get-Date) -lt $deadline) { Start-Sleep -Seconds 2 }
+        if (-not (Wait-Listener $previous $deadline)) {
+            Write-NotListening $previous
+            Write-Host "$($d.Name) and the ones after it were not started." -ForegroundColor Red
+            exit 1
+        }
     }
 
     $arguments = "/k title $($d.Name) && dotnet run --project `"$(Join-Path $root $d.Project)`" --no-build -- $($d.Urls -join ' ')"
     Start-Process -FilePath 'cmd.exe' -WorkingDirectory (Join-Path $root $d.Project) -ArgumentList $arguments
-    Write-Host "Started $($d.Name) in its own window (ports $($d.Ports -join ', ') on $host_)." -ForegroundColor Green
+    Write-Host "Opened $($d.Name) in its own window (ports $($d.Ports -join ', ') on $host_)." -ForegroundColor DarkGray
 }
+
+# ┌─ RESIL ──────────────────────────────────────────────────────────────────────────────
+# │ An opened window is not a running deployable: say "started" only once each one listens,
+# │ and fail loudly (exit 1) otherwise, so a silent start-up stall is never mistaken for
+# │ a running Partner Bank.
+# └──────────────────────────────────────────────────────────────────────────────────────
+$deadline = (Get-Date).AddMinutes(2)
+$notListening = @($deployables | Where-Object { -not (Wait-Listener $_ $deadline) })
+if ($notListening.Count -gt 0) {
+    $notListening | ForEach-Object { Write-NotListening $_ }
+    exit 1
+}
+Write-Host 'All three are listening.' -ForegroundColor Green
 
 Write-Host "`nStop them with: .\ps\Start-PartnerBank.ps1 -Stop"
 if ($Lan) {
