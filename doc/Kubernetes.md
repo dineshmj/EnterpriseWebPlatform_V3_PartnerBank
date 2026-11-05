@@ -81,7 +81,7 @@ Nothing here needs a cluster or Docker.
 
 | Gap | Effect | Planned fix |
 |---|---|---|
-| Not yet installed on a cluster: checked by rendering and schemas only | Problems only a running cluster shows (the Gateway's listeners on high ports, a probe timing) are still to find | The first demo run with EWP's step 7b (built 25-OCT-2026) |
+| The egress NetworkPolicies (#9, 27-OCT-2026) are checked by rendering and schemas only. The chart itself ran on AKS in EWP's cloud demo (25-OCT-2026; every business journey with production certificates on 26-OCT-2026) | A rule that blocks a call the Partner Bank needs shows only on a running cluster | EWP's next cloud demo run |
 | In-cluster calls to the authorization server go out through the Gateway (hairpin) | One more hop for discovery and keys; needs the load balancer to allow it | A split-horizon DNS name or the Service address once the issuer and the Service share a name |
 | Kestrel reads the PKI files at start-up only | A renewed certificate is used after the next restart | A demo cluster lives hours; longer-lived: a restart on Secret change |
 | One instance each (P5) | A pod restart is a short outage | Residual risk R3's production stores first |
